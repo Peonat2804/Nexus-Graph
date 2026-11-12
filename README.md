@@ -1,92 +1,53 @@
-# Obsidian Sample Plugin
+# NexusGraph
+_(3D & 2D Vocabulary & Mind Map Plugin for Obsidian)_
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+**NexusGraph** is an immersive, interactive spatial graph plugin for Obsidian that transforms your markdown notes into dynamic, interconnected 3D and 2D node networks. Originally built for advanced language learning and vocabulary organization, it scales effortlessly into a general-purpose mind-mapping tool for any topic or project.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## 🌟 Key Features
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
+- 🚀 **Dual-Mode Engine:** Instantly toggle between an immersive **3D Force-Directed Graph** (with depth-of-field blur and spatial z-index ordering) and a flat **2D Physics Network** (`vis-network`) with a single click.
+- 📁 **Dynamic Folder & Topic Scoping:** Automatically scans your vault's folders and extracts explicit `[topic::]` tags to filter your views on the fly.
+- 🎯 **Rich Markdown Tagging:** Organize hierarchical knowledge naturally using inline tags (`[topic::]`, `[sub::]`, `[vocab::]`, and floating badges `[n::]`).
+- 🖱️ **Actionable & Interactive:**
+	- Smooth node dragging for both parents and sub-nodes with zero simulation bounce-back.
+	- **Click-to-Navigate:** Clicking any leaf vocabulary node opens the exact source file and jumps straight to the corresponding line.
+- 🎨 **20 Vibrant Branch Palettes:** Automatically color-hashes your branches across 20 distinct visual palettes paired with dark, clean leaf nodes (`#17202A`).
+- ↻ **Live Refresh:** Manually re-indexes your vault instantly whenever you add or modify entries.
 
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and outputs a Notice on click.
-- Registers a global interval which logs 'setInterval' to the console.
+## 📸 Demo Figures
+![demo](./demo.gif)
 
-## First time developing plugins?
+## 📝 Markdown Tag Syntax
+NexusGraph parses inline tags separated by backslashes (`\`) to build your knowledge hierarchy.
+You can tag your vocabularies in many files or wherever you like, then your vocabulares are gathered under the same topic and built a mindmap.
 
-Quick starting guide for new plugin devs:
+### Example Note Structure:
+- A vocabulary assigned to a topic
+> `[vocab::kündigen]` - _to quit_ `[topic::[[Common Actions]]]`
+- A vocabulary assigned to 2 topics, separated by a backslash (`\`)
+> `[vocab::sich um (A) kümmern]` - _to take care of / to look after_ `[topic::[[Common Actions]]]` \ `[sub::Family]` `[topic::[[Relationships]]]`
+- A vocabulary with a badge
+> `[vocab::kriegen]` - `[n::informal]` _to get or receive ~ bekommen or ~ erhalten_ `[topic::[[Common Actions]]] `
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `src/main.ts` to `main.js`.
-- Make changes to `src/main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+### Supported Tag Types:
+- `[topic:: Name]`: Defines the core central node of the graph.
+- `[sub:: Name]`: Creates intermediate branch categories and sub-levels.
+- `[vocab:: Name]`: Represents the leaf nodes (the items you are tracking/studying). Clicking these navigates directly to their source file.
+- `[n:: Badge]`: Adds a vibrant floating badge pill (e.g., `noun`, `verb`, `phrase`) to your vocabulary nodes.
 
-## Releasing new releases
+## 🎮 How to Use
+1. Open the Command Palette (`Ctrl/Cmd + P`) and run `Open Vocabulary Graph`, or click the network icon in your left ribbon bar.
+2. Select your target **Folder** from the top-left dropdown.
+3. Select your desired **Topic** from the adjacent dropdown.
+4. Use the `Mode: 3D 🌐 / 2D 🗺️` button to switch visualization styles.
+5. Click `↻ Refresh` at any time to reload new notes or updates from your vault.
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+## 📦 Installation
+### Manual Installation
+1. Download `main.js`, `manifest.json`, and `styles.css` from the latest GitHub Release.
+2. Create a folder named `nexus-graph` inside your vault's plugins directory: `<YourVault>/.obsidian/plugins/nexus-graph/`.
+3. Drop the downloaded files into that folder.
+4. Restart Obsidian, go to **Settings → Community Plugins**, and enable **NexusGraph**.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
-
-## Adding your plugin to the community plugin list
-
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v18 (`node --version`).
-- `npm i` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint
-
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code.
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-	"fundingUrl": "https://buymeacoffee.com"
-}
-```
-
-If you have multiple URLs, you can also do:
-
-```json
-{
-	"fundingUrl": {
-		"Buy Me a Coffee": "https://buymeacoffee.com",
-		"GitHub Sponsor": "https://github.com/sponsors",
-		"Patreon": "https://www.patreon.com/"
-	}
-}
-```
-
-## API Documentation
-
-See https://docs.obsidian.md
+## 📄 License
+Distributed under the **MIT License**. See `LICENSE` for more information.
