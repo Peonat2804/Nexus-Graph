@@ -65,8 +65,7 @@ export default class Vocab3DGraphPlugin extends Plugin {
             leaf = workspace.getLeaf(false);
             await leaf.setViewState({ type: VIEW_TYPE_3D_GRAPH, active: true });
         }
-        // eslint-disable-next-line obsidianmd/no-unsupported-api
-        workspace.revealLeaf(leaf);
+        workspace.setActiveLeaf(leaf, { focus: true });
     }
 }
 
@@ -93,17 +92,8 @@ class Vocab3DGraphView extends ItemView {
         if (!(targetFile instanceof TFile)) return;
 
         const { workspace } = this.app;
-        const markdownLeaves = workspace.getLeavesOfType("markdown");
-        let existingLeaf = markdownLeaves.find(leaf => (leaf.view as any).file?.path === targetFile.path);
-
-        if (existingLeaf) {
-            // eslint-disable-next-line obsidianmd/no-unsupported-api
-            workspace.revealLeaf(existingLeaf);
-            await existingLeaf.openFile(targetFile, { eState: { line } });
-        } else {
-            let activeLeaf = workspace.getLeaf(false);
-            await activeLeaf.openFile(targetFile, { eState: { line } });
-        }
+        let activeLeaf = workspace.getLeaf(false);
+        await activeLeaf.openFile(targetFile, { eState: { line } });
     }
 
     async onOpen() {
