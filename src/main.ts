@@ -33,8 +33,11 @@ function getBranchColors(name: string, isLeafVocab = false) {
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
-    let index = Math.abs(hash) % branchPalettes.length;
-    let palette = branchPalettes[index];
+    let index = Math.abs(hash) % (branchPalettes.length || 1);
+    
+    // Provide a safe default fallback palette if the array is empty or undefined
+    let palette = branchPalettes[index] ?? { bg: '#2C3E50', border: '#1A252F', light: '#5D6D7E' };
+
     if (isLeafVocab) {
         return { bg: '#17202A', border: palette.bg, light: palette.light };
     }
@@ -289,9 +292,10 @@ class Vocab3DGraphView extends ItemView {
             return cleaned;
         };
 
-        const extractNBadge = (lineText: string) => {
+        const extractNBadge = (lineText: string): string | null => {
+            if (!lineText) return null;
             let matches = [...lineText.matchAll(/\[(n|N)::\s*([^\]]+)\]/g)];
-            if (matches.length > 0) {
+            if (matches.length > 0 && matches[0] && matches[0][2]) {
                 return sanitize(matches[0][2]);
             }
             return null;
@@ -338,8 +342,11 @@ class Vocab3DGraphView extends ItemView {
             folderSelect.appendChild(opt);
         });
 
-        let currentFolder = folders.includes("German") ? "German" : folders[0];
-        folderSelect.value = currentFolder;
+        let currentFolder = folders.includes("German") 
+            ? "German" 
+            : (folders.length > 0 ? folders[0] : this.app.vault.getRoot().path);
+        
+        folderSelect.value = currentFolder ? currentFolder : this.app.vault.getRoot().path;
 
         const updateTopicsForFolder = async (folderPath: string) => {
             allFiles = this.app.vault.getMarkdownFiles();
@@ -356,7 +363,7 @@ class Vocab3DGraphView extends ItemView {
                     let segments = line.split('\\');
                     for (let seg of segments) {
                         let topicMatch = seg.match(/\[topic::\s*([^\]]+)\]/);
-                        if (topicMatch) {
+                        if (topicMatch && topicMatch[1]) {
                             let cleanTopic = sanitize(topicMatch[1]);
                             if (cleanTopic) topicsSet.add(cleanTopic);
                         }
@@ -386,8 +393,11 @@ class Vocab3DGraphView extends ItemView {
                 topicSelect.appendChild(opt);
             });
 
-            topicSelect.value = availableTopics[0];
-            await renderCurrentModeGraph(folderPath, availableTopics[0]);
+            if (availableTopics && availableTopics.length > 0 && availableTopics[0]) {
+                const firstTopic = availableTopics[0];
+                topicSelect.value = firstTopic;
+                await renderCurrentModeGraph(folderPath, firstTopic);
+            }
         };
 
         const renderCurrentModeGraph = async (folderPath: string, topicName: string) => {
@@ -481,18 +491,21 @@ class Vocab3DGraphView extends ItemView {
 
                 for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
                     let line = lines[lineIndex];
+                    if (!line) continue; // Skip if the line is undefined
                     let vocabMatch = line.match(/\[vocab::\s*([^\]]+)\]/);
-                    let sharedVocab = vocabMatch ? sanitize(vocabMatch[1]) : "";
+                    let sharedVocab = vocabMatch && vocabMatch[1] ? sanitize(vocabMatch[1]) : "";
                     let nBadgeVal = extractNBadge(line);
                     let segments = line.split('\\');
 
                     for (let seg of segments) {
                         let segVocabMatch = seg.match(/\[vocab::\s*([^\]]+)\]/);
-                        let cleanVocab = segVocabMatch ? sanitize(segVocabMatch[1]) : sharedVocab;
+                        let cleanVocab = (segVocabMatch && segVocabMatch[1]) ? sanitize(segVocabMatch[1]) : sharedVocab;
+                        
                         let subMatches = [...seg.matchAll(/\[sub::\s*([^\]]+)\]/g)];
-                        let cleanSubs = subMatches.map(m => sanitize(m[1])).filter(Boolean);
+                        let cleanSubs = subMatches.map(m => (m && m[1]) ? sanitize(m[1]) : "").filter(Boolean);
+                        
                         let topicMatch = seg.match(/\[topic::\s*([^\]]+)\]/);
-                        let cleanTopic = topicMatch ? sanitize(topicMatch[1]) : topicName;
+                        let cleanTopic = (topicMatch && topicMatch[1]) ? sanitize(topicMatch[1]) : topicName;
 
                         if (cleanTopic === topicName) {
                             let pathNodes = [];
@@ -508,6 +521,7 @@ class Vocab3DGraphView extends ItemView {
 
                             for (let j = 0; j < cleanSubs.length; j++) {
                                 let subText = cleanSubs[j];
+                                if (!subText) continue; // Skip if undefined
                                 let subId = "S_" + subText.replace(/[^a-zA-Z0-9]/g, "_");
                                 let levelFromTopic = cleanSubs.length - j; 
                                 addNode(subId, subText, 'sub', levelFromTopic, subText, locationData, null);
@@ -548,7 +562,8 @@ class Vocab3DGraphView extends ItemView {
             }
 
             if (currentMode === '3d') {
-                const Graph = ForceGraph3D()(graphElem)
+                const fgFactory = (ForceGraph3D as any).default || ForceGraph3D;
+                const Graph = fgFactory()(graphElem)
                     .backgroundColor('rgba(0,0,0,0)')
                     .graphData({
                         nodes: Array.from(nodesMap.values()),
@@ -656,8 +671,8 @@ class Vocab3DGraphView extends ItemView {
 
                     lbl.ontouchstart = (e: TouchEvent) => {
                         if (e.touches.length !== 1) return;
-                        touchStartX = e.touches[0].clientX;
-                        touchStartY = e.touches[0].clientY;
+                        touchStartX = e.touches[0]?.clientX || 0;
+                        touchStartY = e.touches[0]?.clientY || 0;
                         draggedNode = node;
                         dragPlaneZ = node.z || 0;
                         hasMoved = false;
@@ -669,8 +684,8 @@ class Vocab3DGraphView extends ItemView {
 
                     lbl.ontouchmove = (e: TouchEvent) => {
                         if (!draggedNode || e.touches.length !== 1) return;
-                        const touchX = e.touches[0].clientX;
-                        const touchY = e.touches[0].clientY;
+                        const touchX = e.touches[0]?.clientX || 0;
+                        const touchY = e.touches[0]?.clientY || 0;
                         const moveDist = Math.hypot(touchX - touchStartX, touchY - touchStartY);
                         
                         if (moveDist > 6) {
@@ -897,7 +912,9 @@ class Vocab3DGraphView extends ItemView {
             }, 400);
         };
 
-        await updateTopicsForFolder(currentFolder);
+        if (currentFolder) {
+            await updateTopicsForFolder(currentFolder);
+        }
 
         this.resizeHandler = () => {
             if (currentGraphInstance) {
