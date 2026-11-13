@@ -3,9 +3,9 @@
 	"name": "NexusGraph",
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
+	"description": "3D & 2D Vocabulary & Mind Map Plugin",
 	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"authorUrl": "https://github.com/Peonat2804",
+	"fundingUrl": "https://github.com/sponsors/Peonat2804",
 	"isDesktopOnly": false
 }
