@@ -11,7 +11,11 @@ export class VocabGraphSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
-        containerEl.createEl('h2', { text: 'Vocabulary Graph Settings' });
+
+        // Use Obsidian's official heading API for consistent UI styling
+        new Setting(containerEl)
+            .setName('Vocabulary Graph Settings')
+            .setHeading();
 
         new Setting(containerEl)
             .setName('Example Setting')
