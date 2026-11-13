@@ -1,6 +1,7 @@
 import { App, ItemView, Plugin, WorkspaceLeaf, TFile } from 'obsidian';
 import ForceGraph3D from '3d-force-graph';
 import { Network, DataSet } from 'vis-network/standalone';
+import { VocabGraphSettingTab } from './settings';
 
 const VIEW_TYPE_3D_GRAPH = 'vocab-3d-graph-view';
 
@@ -54,6 +55,7 @@ export default class Vocab3DGraphPlugin extends Plugin {
         });
 
         this.addRibbonIcon('network', 'Open Vocabulary Graph', () => this.activateView());
+        this.addSettingTab(new VocabGraphSettingTab(this.app, this));
     }
 
     async activateView() {
@@ -90,8 +92,6 @@ class Vocab3DGraphView extends ItemView {
         if (!(targetFile instanceof TFile)) return;
 
         const { workspace } = this.app;
-        
-        // Check if the file is already open in any markdown tab to avoid duplicates
         const markdownLeaves = workspace.getLeavesOfType("markdown");
         let existingLeaf = markdownLeaves.find(leaf => (leaf.view as any).file?.path === targetFile.path);
 
@@ -108,166 +108,181 @@ class Vocab3DGraphView extends ItemView {
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
         container.addClass("vocab-graph-view-wrapper");
-        container.style.position = "relative";
-        container.style.width = "100%";
-        container.style.height = "100%";
-        container.style.backgroundColor = "transparent";
-        container.style.overflow = "hidden";
-        container.style.display = "flex";
-        container.style.flexDirection = "column";
+        container.setCssStyles({
+            position: "relative",
+            width: "100%",
+            height: "100%",
+            backgroundColor: "transparent",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column"
+        });
 
         // 1. Top Bar Wrapper
-        const topBar = document.createElement('div');
-        topBar.style.borderBottom = "1px solid var(--background-modifier-border)";
-        topBar.style.backgroundColor = "var(--background-secondary)";
-        topBar.style.zIndex = "100";
-        topBar.style.display = "flex";
-        topBar.style.flexDirection = "column";
+        const topBar = container.createDiv();
+        topBar.setCssStyles({
+            borderBottom: "1px solid var(--background-modifier-border)",
+            backgroundColor: "var(--background-secondary)",
+            zIndex: "100",
+            display: "flex",
+            flexDirection: "column"
+        });
 
-        const headerRow = document.createElement('div');
-        headerRow.style.display = "flex";
-        headerRow.style.justifyContent = "space-between";
-        headerRow.style.alignItems = "center";
-        headerRow.style.padding = "6px 12px";
-        headerRow.style.fontSize = "11px";
-        headerRow.style.fontWeight = "600";
-        headerRow.style.color = "var(--text-muted)";
+        const headerRow = topBar.createDiv();
+        headerRow.setCssStyles({
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "6px 12px",
+            fontSize: "11px",
+            fontWeight: "600",
+            color: "var(--text-muted)"
+        });
 
-        const titleSpan = document.createElement('span');
-        titleSpan.textContent = "🗺️ GRAPH CONTROLS";
-        headerRow.appendChild(titleSpan);
+        const titleSpan = headerRow.createSpan();
+        titleSpan.setText("🗺️ GRAPH CONTROLS");
 
-        const collapseBtn = document.createElement('button');
-        collapseBtn.textContent = "▲";
-        collapseBtn.style.padding = "2px 8px";
-        collapseBtn.style.fontSize = "12px";
-        collapseBtn.style.lineHeight = "1";
-        collapseBtn.style.borderRadius = "4px";
-        collapseBtn.style.backgroundColor = "var(--interactive-normal)";
-        collapseBtn.style.color = "var(--text-normal)";
-        collapseBtn.style.border = "1px solid var(--background-modifier-border)";
-        collapseBtn.style.cursor = "pointer";
-        headerRow.appendChild(collapseBtn);
-        topBar.appendChild(headerRow);
+        const collapseBtn = headerRow.createEl('button');
+        collapseBtn.setText("▲");
+        collapseBtn.setCssStyles({
+            padding: "2px 8px",
+            fontSize: "12px",
+            lineHeight: "1",
+            borderRadius: "4px",
+            backgroundColor: "var(--interactive-normal)",
+            color: "var(--text-normal)",
+            border: "1px solid var(--background-modifier-border)",
+            cursor: "pointer"
+        });
 
-        const controlsBody = document.createElement('div');
-        controlsBody.style.padding = "8px 12px 10px 12px";
-        controlsBody.style.display = "flex";
-        controlsBody.style.flexWrap = "wrap";
-        controlsBody.style.alignItems = "center";
-        controlsBody.style.gap = "8px 12px";
-        topBar.appendChild(controlsBody);
+        const controlsBody = topBar.createDiv();
+        controlsBody.setCssStyles({
+            padding: "8px 12px 10px 12px",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "8px 12px"
+        });
 
         let isCollapsed = false;
         collapseBtn.onclick = () => {
             isCollapsed = !isCollapsed;
-            controlsBody.style.display = isCollapsed ? "none" : "flex";
-            collapseBtn.textContent = isCollapsed ? "▼" : "▲";
+            controlsBody.setCssStyles({ display: isCollapsed ? "none" : "flex" });
+            collapseBtn.setText(isCollapsed ? "▼" : "▲");
             window.dispatchEvent(new Event('resize'));
         };
 
         // Folder Group
-        const folderGroup = document.createElement('div');
-        folderGroup.style.display = "flex";
-        folderGroup.style.alignItems = "center";
-        folderGroup.style.gap = "6px";
-        folderGroup.style.flex = "1 1 140px";
+        const folderGroup = controlsBody.createDiv();
+        folderGroup.setCssStyles({
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            flex: "1 1 140px"
+        });
 
-        const folderLabel = document.createElement('label');
-        folderLabel.textContent = "Folder:";
-        folderLabel.style.fontWeight = "600";
-        folderLabel.style.fontSize = "11px";
-        folderLabel.style.color = "var(--text-muted)";
-        folderGroup.appendChild(folderLabel);
+        const folderLabel = folderGroup.createEl('label');
+        folderLabel.setText("Folder:");
+        folderLabel.setCssStyles({
+            fontWeight: "600",
+            fontSize: "11px",
+            color: "var(--text-muted)"
+        });
 
-        const folderSelect = document.createElement('select');
-        folderSelect.style.flex = "1";
-        folderSelect.style.padding = "3px 6px";
-        folderSelect.style.borderRadius = "6px";
-        folderSelect.style.backgroundColor = "var(--interactive-normal)";
-        folderSelect.style.color = "var(--text-normal)";
-        folderSelect.style.border = "1px solid var(--background-modifier-border)";
-        folderSelect.style.fontSize = "11px";
-        folderSelect.style.cursor = "pointer";
-        folderGroup.appendChild(folderSelect);
-        controlsBody.appendChild(folderGroup);
+        const folderSelect = folderGroup.createEl('select');
+        folderSelect.setCssStyles({
+            flex: "1",
+            padding: "3px 6px",
+            borderRadius: "6px",
+            backgroundColor: "var(--interactive-normal)",
+            color: "var(--text-normal)",
+            border: "1px solid var(--background-modifier-border)",
+            fontSize: "11px",
+            cursor: "pointer"
+        });
 
         // Topic Group
-        const topicGroup = document.createElement('div');
-        topicGroup.style.display = "flex";
-        topicGroup.style.alignItems = "center";
-        topicGroup.style.gap = "6px";
-        topicGroup.style.flex = "1 1 140px";
+        const topicGroup = controlsBody.createDiv();
+        topicGroup.setCssStyles({
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            flex: "1 1 140px"
+        });
 
-        const topicLabel = document.createElement('label');
-        topicLabel.textContent = "Topic:";
-        topicLabel.style.fontWeight = "600";
-        topicLabel.style.fontSize = "11px";
-        topicLabel.style.color = "var(--text-muted)";
-        topicGroup.appendChild(topicLabel);
+        const topicLabel = topicGroup.createEl('label');
+        topicLabel.setText("Topic:");
+        topicLabel.setCssStyles({
+            fontWeight: "600",
+            fontSize: "11px",
+            color: "var(--text-muted)"
+        });
 
-        const topicSelect = document.createElement('select');
-        topicSelect.style.flex = "1";
-        topicSelect.style.padding = "3px 6px";
-        topicSelect.style.borderRadius = "6px";
-        topicSelect.style.backgroundColor = "var(--interactive-normal)";
-        topicSelect.style.color = "var(--text-normal)";
-        topicSelect.style.border = "1px solid var(--background-modifier-border)";
-        topicSelect.style.fontSize = "11px";
-        topicSelect.style.cursor = "pointer";
-        topicGroup.appendChild(topicSelect);
-        controlsBody.appendChild(topicGroup);
+        const topicSelect = topicGroup.createEl('select');
+        topicSelect.setCssStyles({
+            flex: "1",
+            padding: "3px 6px",
+            borderRadius: "6px",
+            backgroundColor: "var(--interactive-normal)",
+            color: "var(--text-normal)",
+            border: "1px solid var(--background-modifier-border)",
+            fontSize: "11px",
+            cursor: "pointer"
+        });
 
         // Mode Toggle Button (3D / 2D)
-        const modeBtn = document.createElement('button');
-        modeBtn.textContent = "Mode: 3D 🌐";
-        modeBtn.style.padding = "4px 10px";
-        modeBtn.style.borderRadius = "6px";
-        modeBtn.style.backgroundColor = "var(--interactive-normal)";
-        modeBtn.style.color = "var(--text-normal)";
-        modeBtn.style.border = "1px solid var(--background-modifier-border)";
-        modeBtn.style.fontSize = "11px";
-        modeBtn.style.fontWeight = "600";
-        modeBtn.style.cursor = "pointer";
-        controlsBody.appendChild(modeBtn);
+        const modeBtn = controlsBody.createEl('button');
+        modeBtn.setText("Mode: 3D 🌐");
+        modeBtn.setCssStyles({
+            padding: "4px 10px",
+            borderRadius: "6px",
+            backgroundColor: "var(--interactive-normal)",
+            color: "var(--text-normal)",
+            border: "1px solid var(--background-modifier-border)",
+            fontSize: "11px",
+            fontWeight: "600",
+            cursor: "pointer"
+        });
 
         // Refresh Button
-        const refreshBtn = document.createElement('button');
-        refreshBtn.textContent = "↻ Refresh";
-        refreshBtn.style.padding = "4px 10px";
-        refreshBtn.style.borderRadius = "6px";
-        refreshBtn.style.backgroundColor = "var(--interactive-accent)";
-        refreshBtn.style.color = "var(--text-on-accent)";
-        refreshBtn.style.border = "none";
-        refreshBtn.style.fontSize = "11px";
-        refreshBtn.style.fontWeight = "600";
-        refreshBtn.style.cursor = "pointer";
-        controlsBody.appendChild(refreshBtn);
-
-        container.appendChild(topBar);
+        const refreshBtn = controlsBody.createEl('button');
+        refreshBtn.setText("↻ Refresh");
+        refreshBtn.setCssStyles({
+            padding: "4px 10px",
+            borderRadius: "6px",
+            backgroundColor: "var(--interactive-accent)",
+            color: "var(--text-on-accent)",
+            border: "none",
+            fontSize: "11px",
+            fontWeight: "600",
+            cursor: "pointer"
+        });
 
         // 2. Graph Canvas Container
-        const graphWrapper = document.createElement('div');
-        graphWrapper.style.position = "relative";
-        graphWrapper.style.flex = "1";
-        graphWrapper.style.width = "100%";
-        graphWrapper.style.overflow = "hidden";
-        container.appendChild(graphWrapper);
+        const graphWrapper = container.createDiv();
+        graphWrapper.setCssStyles({
+            position: "relative",
+            flex: "1",
+            width: "100%",
+            overflow: "hidden"
+        });
 
-        let graphElem = document.createElement('div');
-        graphElem.style.width = "100%";
-        graphElem.style.height = "100%";
-        graphWrapper.appendChild(graphElem);
+        let graphElem = graphWrapper.createDiv();
+        graphElem.setCssStyles({
+            width: "100%",
+            height: "100%"
+        });
 
-        let overlay = document.createElement('div');
-        overlay.style.position = "absolute";
-        overlay.style.top = "0";
-        overlay.style.left = "0";
-        overlay.style.width = "100%";
-        overlay.style.height = "100%";
-        overlay.style.pointerEvents = "none";
-        overlay.style.zIndex = "99";
-        graphWrapper.appendChild(overlay);
+        let overlay = graphWrapper.createDiv();
+        overlay.setCssStyles({
+            position: "absolute",
+            top: "0",
+            left: "0",
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+            zIndex: "99"
+        });
 
         let currentMode: '3d' | '2d' = '3d';
         let currentGraphInstance: any = null;
@@ -364,7 +379,11 @@ class Vocab3DGraphView extends ItemView {
                 opt.value = "";
                 opt.textContent = "No [topic::] tags found";
                 topicSelect.appendChild(opt);
-                graphElem.innerHTML = `<div style='padding:40px; color:var(--text-muted); text-align:center;'>⚠️ No <code>[topic::]</code> tags found in folder <b>${folderPath}</b>.</div>`;
+                
+                graphElem.empty();
+                const warningDiv = graphElem.createDiv();
+                warningDiv.setCssStyles({ padding: '40px', color: 'var(--text-muted)', textAlign: 'center' });
+                warningDiv.setText(`⚠️ No [topic::] tags found in folder ${folderPath}.`);
                 return;
             }
 
@@ -387,8 +406,8 @@ class Vocab3DGraphView extends ItemView {
                 visNetworkInstance.destroy();
                 visNetworkInstance = null;
             }
-            graphElem.innerHTML = "";
-            overlay.innerHTML = "";
+            graphElem.empty();
+            overlay.empty();
 
             allFiles = this.app.vault.getMarkdownFiles();
             let targetFiles = folderPath === "/" 
@@ -530,7 +549,9 @@ class Vocab3DGraphView extends ItemView {
             linksArray = Array.from(linksSet.values());
 
             if (nodesMap.size <= 1) {
-                graphElem.innerHTML = `<div style='padding:40px; color:var(--text-muted); text-align:center;'>⚠️ No vocabulary entries found for topic <b>${topicName}</b>.</div>`;
+                const warningDiv = graphElem.createDiv();
+                warningDiv.setCssStyles({ padding: '40px', color: 'var(--text-muted)', textAlign: 'center' });
+                warningDiv.setText(`⚠️ No vocabulary entries found for topic ${topicName}.`);
                 return;
             }
 
@@ -582,57 +603,50 @@ class Vocab3DGraphView extends ItemView {
                 };
 
                 nodesMap.forEach(node => {
-                    let lbl = document.createElement('div');
-                    lbl.style.position = "absolute";
-                    lbl.style.transform = "translate(-50%, -50%)";
-                    lbl.style.backgroundColor = node.colors.bg;
-                    lbl.style.borderColor = node.colors.border;
-                    lbl.style.borderWidth = "1.5px";
-                    lbl.style.borderStyle = "solid";
-                    lbl.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
-                    lbl.style.whiteSpace = "nowrap";
-                    lbl.style.pointerEvents = "auto";
-                    lbl.style.cursor = node.type === 'vocab' ? "pointer" : "grab";
-                    lbl.style.transition = "opacity 0.05s linear, filter 0.05s linear";
+                    let lbl = overlay.createDiv();
+                    lbl.setCssStyles({
+                        position: "absolute",
+                        transform: "translate(-50%, -50%)",
+                        backgroundColor: node.colors.bg,
+                        borderColor: node.colors.border,
+                        borderWidth: "1.5px",
+                        borderStyle: "solid",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                        whiteSpace: "nowrap",
+                        pointerEvents: "auto",
+                        cursor: node.type === 'vocab' ? "pointer" : "grab",
+                        transition: "opacity 0.05s linear, filter 0.05s linear"
+                    });
 
-                    let textSpan = document.createElement('span');
-                    textSpan.textContent = node.name;
-                    textSpan.style.color = "#FFFFFF";
-                    lbl.appendChild(textSpan);
+                    let textSpan = lbl.createSpan();
+                    textSpan.setText(node.name);
+                    textSpan.setCssStyles({ color: "#FFFFFF" });
 
                     if (node.badge) {
-                        let badgeEl = document.createElement('span');
-                        badgeEl.textContent = node.badge.toUpperCase();
-                        badgeEl.style.position = "absolute";
-                        badgeEl.style.top = "-10px";
-                        badgeEl.style.right = "-8px";
-                        badgeEl.style.backgroundColor = "#EF4444";
-                        badgeEl.style.color = "#FFFFFF";
-                        badgeEl.style.fontSize = "9px";
-                        badgeEl.style.fontWeight = "700";
-                        badgeEl.style.padding = "2px 6px";
-                        badgeEl.style.borderRadius = "11px";
-                        badgeEl.style.border = "1px solid rgba(255,255,255,0.4)";
-                        badgeEl.style.boxShadow = "0 2px 4px rgba(0,0,0,0.3)";
-                        lbl.appendChild(badgeEl);
+                        let badgeEl = lbl.createSpan();
+                        badgeEl.setText(node.badge.toUpperCase());
+                        badgeEl.setCssStyles({
+                            position: "absolute",
+                            top: "-10px",
+                            right: "-8px",
+                            backgroundColor: "#EF4444",
+                            color: "#FFFFFF",
+                            fontSize: "9px",
+                            fontWeight: "700",
+                            padding: "2px 6px",
+                            borderRadius: "11px",
+                            border: "1px solid rgba(255,255,255,0.4)",
+                            boxShadow: "0 2px 4px rgba(0,0,0,0.3)"
+                        });
                     }
 
                     if (node.type === 'topic') {
-                        lbl.style.fontSize = "16px";
-                        lbl.style.fontWeight = "700";
-                        lbl.style.padding = "8px 14px";
-                        lbl.style.borderRadius = "10px";
+                        lbl.setCssStyles({ fontSize: "16px", fontWeight: "700", padding: "8px 14px", borderRadius: "10px" });
                     } else if (node.type === 'sub') {
                         let levelSize = node.level === 1 ? 14 : 11;
-                        lbl.style.fontSize = levelSize + "px";
-                        lbl.style.fontWeight = "600";
-                        lbl.style.padding = "5px 10px";
-                        lbl.style.borderRadius = "8px";
+                        lbl.setCssStyles({ fontSize: levelSize + "px", fontWeight: "600", padding: "5px 10px", borderRadius: "8px" });
                     } else {
-                        lbl.style.fontSize = "11px";
-                        lbl.style.fontWeight = "500";
-                        lbl.style.padding = "5px 8px";
-                        lbl.style.borderRadius = "6px";
+                        lbl.setCssStyles({ fontSize: "11px", fontWeight: "500", padding: "5px 8px", borderRadius: "6px" });
                     }
                     
                     lbl.onmousedown = (e: MouseEvent) => {
@@ -641,7 +655,7 @@ class Vocab3DGraphView extends ItemView {
                         draggedNode = node;
                         dragPlaneZ = node.z || 0;
                         hasMoved = false;
-                        lbl.style.cursor = "grabbing";
+                        lbl.setCssStyles({ cursor: "grabbing" });
                         Graph.controls().enabled = false;
                         node.fx = node.x;
                         node.fy = node.y;
@@ -692,13 +706,11 @@ class Vocab3DGraphView extends ItemView {
                         }
                     };
 
-                    // Desktop click backup
                     lbl.onclick = (e: MouseEvent) => {
                         e.stopPropagation();
                         handleNodeClick(node);
                     };
 
-                    overlay.appendChild(lbl);
                     nodeElements.set(node.id, lbl);
                 });
 
@@ -728,7 +740,7 @@ class Vocab3DGraphView extends ItemView {
                         draggedNode.fz = undefined;
                         nodesMap.forEach(n => {
                             let el = nodeElements.get(n.id);
-                            if (el) el.style.cursor = n.type === 'vocab' ? "pointer" : "grab";
+                            if (el) el.setCssStyles({ cursor: n.type === 'vocab' ? "pointer" : "grab" });
                         });
                         draggedNode = null;
                         Graph.controls().enabled = true;
@@ -782,24 +794,31 @@ class Vocab3DGraphView extends ItemView {
                             pos.project(camera);
 
                             if (pos.z > 1) {
-                                el.style.display = 'none';
+                                el.setCssStyles({ display: 'none' });
                                 return;
                             }
-                            el.style.display = 'block';
+                            el.setCssStyles({ display: 'block' });
                             let x = (pos.x * 0.5 + 0.5) * width;
                             let y = (-(pos.y * 0.5) + 0.5) * height;
-                            el.style.left = `${x}px`;
-                            el.style.top = `${y}px`;
-                            el.style.zIndex = Math.round(10000 - nodeDistToCam).toString();
+                            
+                            el.setCssStyles({
+                                left: `${x}px`,
+                                top: `${y}px`,
+                                zIndex: Math.round(10000 - nodeDistToCam).toString()
+                            });
 
                             let depthDifference = nodeDistToCam - rootDistToCam;
                             if (depthDifference > 30) {
                                 let softBlur = Math.min(2.0, (depthDifference - 30) / 80);
-                                el.style.filter = `blur(${softBlur.toFixed(1)}px)`;
-                                el.style.opacity = "0.8";
+                                el.setCssStyles({
+                                    filter: `blur(${softBlur.toFixed(1)}px)`,
+                                    opacity: "0.8"
+                                });
                             } else {
-                                el.style.filter = 'none';
-                                el.style.opacity = "1.0";
+                                el.setCssStyles({
+                                    filter: 'none',
+                                    opacity: "1.0"
+                                });
                             }
                         });
                     }
@@ -810,9 +829,11 @@ class Vocab3DGraphView extends ItemView {
 
             } else {
                 // --- RENDER 2D GRAPH ---
-                graphElem.style.width = "100%";
-                graphElem.style.height = `${graphWrapper.clientHeight || 500}px`;
-                graphElem.style.position = "relative";
+                graphElem.setCssStyles({
+                    width: "100%",
+                    height: `${graphWrapper.clientHeight || 500}px`,
+                    position: "relative"
+                });
 
                 requestAnimationFrame(() => {
                     try {
@@ -867,20 +888,20 @@ class Vocab3DGraphView extends ItemView {
 
         modeBtn.onclick = async () => {
             currentMode = currentMode === '3d' ? '2d' : '3d';
-            modeBtn.textContent = currentMode === '3d' ? "Mode: 3D 🌐" : "Mode: 2D 🗺️";
+            modeBtn.setText(currentMode === '3d' ? "Mode: 3D 🌐" : "Mode: 2D 🗺️");
             if (topicSelect.value) {
                 await renderCurrentModeGraph(folderSelect.value, topicSelect.value);
             }
         };
 
         refreshBtn.onclick = async () => {
-            refreshBtn.textContent = "↻ Refreshing...";
+            refreshBtn.setText("↻ Refreshing...");
             await updateTopicsForFolder(folderSelect.value);
             if (topicSelect.value) {
                 await renderCurrentModeGraph(folderSelect.value, topicSelect.value);
             }
             setTimeout(() => {
-                refreshBtn.textContent = "↻ Refresh";
+                refreshBtn.setText("↻ Refresh");
             }, 400);
         };
 
@@ -892,7 +913,7 @@ class Vocab3DGraphView extends ItemView {
                 currentGraphInstance.height(graphWrapper.clientHeight);
             }
             if (visNetworkInstance) {
-                graphElem.style.height = `${graphWrapper.clientHeight || 500}px`;
+                graphElem.setCssStyles({ height: `${graphWrapper.clientHeight || 500}px` });
                 visNetworkInstance.redraw();
             }
         };

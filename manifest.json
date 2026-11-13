@@ -2,9 +2,9 @@
 	"id": "nexus-graph",
 	"name": "NexusGraph",
 	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
-	"description": "3D & 2D Vocabulary & Mind Map Plugin",
-	"author": "Obsidian",
+	"minAppVersion": "1.5.0",
+	"description": "An interactive 3D and 2D vocabulary and mind mapping graph plugin.",
+	"author": "Nguyễn Duy Tân",
 	"authorUrl": "https://github.com/Peonat2804",
 	"fundingUrl": "https://github.com/sponsors/Peonat2804",
 	"isDesktopOnly": false
