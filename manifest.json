@@ -1,7 +1,7 @@
 {
 	"id": "nexus-graph",
 	"name": "NexusGraph",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"minAppVersion": "1.5.0",
 	"description": "An interactive 3D and 2D vocabulary and mind mapping graph plugin.",
 	"author": "Nguyễn Duy Tân",
