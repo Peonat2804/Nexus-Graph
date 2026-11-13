@@ -1,9 +1,9 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, SettingDefinitionItem, Plugin } from 'obsidian';
 
 export class VocabGraphSettingTab extends PluginSettingTab {
-    plugin: any;
+    plugin: Plugin;
 
-    constructor(app: App, plugin: any) {
+    constructor(app: App, plugin: Plugin) {
         super(app, plugin);
         this.plugin = plugin;
     }
@@ -12,7 +12,6 @@ export class VocabGraphSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        // Omit "Settings" in heading text per linter rules
         new Setting(containerEl)
             .setName('Vocabulary Graph')
             .setHeading();
@@ -23,5 +22,9 @@ export class VocabGraphSettingTab extends PluginSettingTab {
             .addText(text => text
                 .setPlaceholder('Enter value')
                 .setValue(''));
+    }
+
+    getSettingDefinitions(): SettingDefinitionItem[] {
+        return [];
     }
 }
