@@ -85,6 +85,25 @@ class Vocab3DGraphView extends ItemView {
         return "Vocabulary Graph";
     }
 
+    async openFileAtLine(path: string, line: number) {
+        const targetFile = this.app.vault.getAbstractFileByPath(path);
+        if (!(targetFile instanceof TFile)) return;
+
+        const { workspace } = this.app;
+        
+        // Check if the file is already open in any markdown tab to avoid duplicates
+        const markdownLeaves = workspace.getLeavesOfType("markdown");
+        let existingLeaf = markdownLeaves.find(leaf => (leaf.view as any).file?.path === targetFile.path);
+
+        if (existingLeaf) {
+            workspace.revealLeaf(existingLeaf);
+            await existingLeaf.openFile(targetFile, { eState: { line } });
+        } else {
+            let activeLeaf = workspace.getLeaf(false);
+            await activeLeaf.openFile(targetFile, { eState: { line } });
+        }
+    }
+
     async onOpen() {
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
@@ -97,94 +116,133 @@ class Vocab3DGraphView extends ItemView {
         container.style.display = "flex";
         container.style.flexDirection = "column";
 
-        // 1. Top Bar with Controls & Mode Switcher
+        // 1. Top Bar Wrapper
         const topBar = document.createElement('div');
-        topBar.style.padding = "10px 15px";
-        topBar.style.display = "flex";
-        topBar.style.flexWrap = "wrap";
-        topBar.style.alignItems = "center";
-        topBar.style.gap = "10px 15px";
         topBar.style.borderBottom = "1px solid var(--background-modifier-border)";
         topBar.style.backgroundColor = "var(--background-secondary)";
         topBar.style.zIndex = "100";
+        topBar.style.display = "flex";
+        topBar.style.flexDirection = "column";
+
+        const headerRow = document.createElement('div');
+        headerRow.style.display = "flex";
+        headerRow.style.justifyContent = "space-between";
+        headerRow.style.alignItems = "center";
+        headerRow.style.padding = "6px 12px";
+        headerRow.style.fontSize = "11px";
+        headerRow.style.fontWeight = "600";
+        headerRow.style.color = "var(--text-muted)";
+
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = "🗺️ GRAPH CONTROLS";
+        headerRow.appendChild(titleSpan);
+
+        const collapseBtn = document.createElement('button');
+        collapseBtn.textContent = "▲";
+        collapseBtn.style.padding = "2px 8px";
+        collapseBtn.style.fontSize = "12px";
+        collapseBtn.style.lineHeight = "1";
+        collapseBtn.style.borderRadius = "4px";
+        collapseBtn.style.backgroundColor = "var(--interactive-normal)";
+        collapseBtn.style.color = "var(--text-normal)";
+        collapseBtn.style.border = "1px solid var(--background-modifier-border)";
+        collapseBtn.style.cursor = "pointer";
+        headerRow.appendChild(collapseBtn);
+        topBar.appendChild(headerRow);
+
+        const controlsBody = document.createElement('div');
+        controlsBody.style.padding = "8px 12px 10px 12px";
+        controlsBody.style.display = "flex";
+        controlsBody.style.flexWrap = "wrap";
+        controlsBody.style.alignItems = "center";
+        controlsBody.style.gap = "8px 12px";
+        topBar.appendChild(controlsBody);
+
+        let isCollapsed = false;
+        collapseBtn.onclick = () => {
+            isCollapsed = !isCollapsed;
+            controlsBody.style.display = isCollapsed ? "none" : "flex";
+            collapseBtn.textContent = isCollapsed ? "▼" : "▲";
+            window.dispatchEvent(new Event('resize'));
+        };
 
         // Folder Group
         const folderGroup = document.createElement('div');
         folderGroup.style.display = "flex";
         folderGroup.style.alignItems = "center";
-        folderGroup.style.gap = "8px";
-        folderGroup.style.flex = "1 1 160px";
+        folderGroup.style.gap = "6px";
+        folderGroup.style.flex = "1 1 140px";
 
         const folderLabel = document.createElement('label');
         folderLabel.textContent = "Folder:";
         folderLabel.style.fontWeight = "600";
-        folderLabel.style.fontSize = "12px";
+        folderLabel.style.fontSize = "11px";
         folderLabel.style.color = "var(--text-muted)";
         folderGroup.appendChild(folderLabel);
 
         const folderSelect = document.createElement('select');
         folderSelect.style.flex = "1";
-        folderSelect.style.padding = "4px 8px";
+        folderSelect.style.padding = "3px 6px";
         folderSelect.style.borderRadius = "6px";
         folderSelect.style.backgroundColor = "var(--interactive-normal)";
         folderSelect.style.color = "var(--text-normal)";
         folderSelect.style.border = "1px solid var(--background-modifier-border)";
-        folderSelect.style.fontSize = "12px";
+        folderSelect.style.fontSize = "11px";
         folderSelect.style.cursor = "pointer";
         folderGroup.appendChild(folderSelect);
-        topBar.appendChild(folderGroup);
+        controlsBody.appendChild(folderGroup);
 
         // Topic Group
         const topicGroup = document.createElement('div');
         topicGroup.style.display = "flex";
         topicGroup.style.alignItems = "center";
-        topicGroup.style.gap = "8px";
-        topicGroup.style.flex = "1 1 160px";
+        topicGroup.style.gap = "6px";
+        topicGroup.style.flex = "1 1 140px";
 
         const topicLabel = document.createElement('label');
         topicLabel.textContent = "Topic:";
         topicLabel.style.fontWeight = "600";
-        topicLabel.style.fontSize = "12px";
+        topicLabel.style.fontSize = "11px";
         topicLabel.style.color = "var(--text-muted)";
         topicGroup.appendChild(topicLabel);
 
         const topicSelect = document.createElement('select');
         topicSelect.style.flex = "1";
-        topicSelect.style.padding = "4px 8px";
+        topicSelect.style.padding = "3px 6px";
         topicSelect.style.borderRadius = "6px";
         topicSelect.style.backgroundColor = "var(--interactive-normal)";
         topicSelect.style.color = "var(--text-normal)";
         topicSelect.style.border = "1px solid var(--background-modifier-border)";
-        topicSelect.style.fontSize = "12px";
+        topicSelect.style.fontSize = "11px";
         topicSelect.style.cursor = "pointer";
         topicGroup.appendChild(topicSelect);
-        topBar.appendChild(topicGroup);
+        controlsBody.appendChild(topicGroup);
 
         // Mode Toggle Button (3D / 2D)
         const modeBtn = document.createElement('button');
         modeBtn.textContent = "Mode: 3D 🌐";
-        modeBtn.style.padding = "5px 12px";
+        modeBtn.style.padding = "4px 10px";
         modeBtn.style.borderRadius = "6px";
         modeBtn.style.backgroundColor = "var(--interactive-normal)";
         modeBtn.style.color = "var(--text-normal)";
         modeBtn.style.border = "1px solid var(--background-modifier-border)";
-        modeBtn.style.fontSize = "12px";
+        modeBtn.style.fontSize = "11px";
         modeBtn.style.fontWeight = "600";
         modeBtn.style.cursor = "pointer";
-        topBar.appendChild(modeBtn);
+        controlsBody.appendChild(modeBtn);
 
         // Refresh Button
         const refreshBtn = document.createElement('button');
         refreshBtn.textContent = "↻ Refresh";
-        refreshBtn.style.padding = "5px 12px";
+        refreshBtn.style.padding = "4px 10px";
         refreshBtn.style.borderRadius = "6px";
         refreshBtn.style.backgroundColor = "var(--interactive-accent)";
         refreshBtn.style.color = "var(--text-on-accent)";
         refreshBtn.style.border = "none";
-        refreshBtn.style.fontSize = "12px";
+        refreshBtn.style.fontSize = "11px";
         refreshBtn.style.fontWeight = "600";
         refreshBtn.style.cursor = "pointer";
-        topBar.appendChild(refreshBtn);
+        controlsBody.appendChild(refreshBtn);
 
         container.appendChild(topBar);
 
@@ -381,9 +439,9 @@ class Vocab3DGraphView extends ItemView {
                         id: id,
                         label: label,
                         color: { background: bg, border: border, highlight: { background: border, border: '#FFFFFF' } },
-                        font: { color: '#FFFFFF', face: 'Inter, sans-serif', size: type === 'topic' ? 20 : 12, bold: type !== 'vocab' },
+                        font: { color: '#FFFFFF', face: 'Inter, sans-serif', size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
                         shape: 'box',
-                        margin: type === 'topic' ? 16 : 10,
+                        margin: type === 'topic' ? 14 : 8,
                         borderRadius: 8,
                         shadow: true,
                         cursor: location ? 'pointer' : 'default'
@@ -493,10 +551,7 @@ class Vocab3DGraphView extends ItemView {
                         if (node.type === 'vocab') {
                             let loc = nodeToLocationMap.get(node.id);
                             if (loc) {
-                                let targetFile = this.app.vault.getAbstractFileByPath(loc.path);
-                                if (targetFile instanceof TFile) {
-                                    this.app.workspace.getLeaf(false).openFile(targetFile, { eState: { line: loc.line } });
-                                }
+                                this.openFileAtLine(loc.path, loc.line);
                             }
                         }
                     });
@@ -512,6 +567,19 @@ class Vocab3DGraphView extends ItemView {
 
                 let nodeElements = new Map<string, HTMLElement>();
                 let draggedNode: any = null;
+                let dragPlaneZ = 0;
+                let touchStartX = 0;
+                let touchStartY = 0;
+                let hasMoved = false;
+
+                const handleNodeClick = (node: any) => {
+                    if (node.type === 'vocab') {
+                        let loc = nodeToLocationMap.get(node.id);
+                        if (loc) {
+                            this.openFileAtLine(loc.path, loc.line);
+                        }
+                    }
+                };
 
                 nodesMap.forEach(node => {
                     let lbl = document.createElement('div');
@@ -550,20 +618,20 @@ class Vocab3DGraphView extends ItemView {
                     }
 
                     if (node.type === 'topic') {
-                        lbl.style.fontSize = "18px";
+                        lbl.style.fontSize = "16px";
                         lbl.style.fontWeight = "700";
-                        lbl.style.padding = "10px 18px";
+                        lbl.style.padding = "8px 14px";
                         lbl.style.borderRadius = "10px";
                     } else if (node.type === 'sub') {
-                        let levelSize = node.level === 1 ? 15 : 12;
+                        let levelSize = node.level === 1 ? 14 : 11;
                         lbl.style.fontSize = levelSize + "px";
                         lbl.style.fontWeight = "600";
-                        lbl.style.padding = "6px 12px";
+                        lbl.style.padding = "5px 10px";
                         lbl.style.borderRadius = "8px";
                     } else {
-                        lbl.style.fontSize = "12px";
+                        lbl.style.fontSize = "11px";
                         lbl.style.fontWeight = "500";
-                        lbl.style.padding = "6px 10px";
+                        lbl.style.padding = "5px 8px";
                         lbl.style.borderRadius = "6px";
                     }
                     
@@ -571,6 +639,8 @@ class Vocab3DGraphView extends ItemView {
                         if (e.button !== 0) return;
                         e.stopPropagation();
                         draggedNode = node;
+                        dragPlaneZ = node.z || 0;
+                        hasMoved = false;
                         lbl.style.cursor = "grabbing";
                         Graph.controls().enabled = false;
                         node.fx = node.x;
@@ -578,17 +648,54 @@ class Vocab3DGraphView extends ItemView {
                         node.fz = node.z;
                     };
 
+                    lbl.ontouchstart = (e: TouchEvent) => {
+                        if (e.touches.length !== 1) return;
+                        touchStartX = e.touches[0].clientX;
+                        touchStartY = e.touches[0].clientY;
+                        draggedNode = node;
+                        dragPlaneZ = node.z || 0;
+                        hasMoved = false;
+                        Graph.controls().enabled = false;
+                        node.fx = node.x;
+                        node.fy = node.y;
+                        node.fz = node.z;
+                    };
+
+                    lbl.ontouchmove = (e: TouchEvent) => {
+                        if (!draggedNode || e.touches.length !== 1) return;
+                        const touchX = e.touches[0].clientX;
+                        const touchY = e.touches[0].clientY;
+                        const moveDist = Math.hypot(touchX - touchStartX, touchY - touchStartY);
+                        
+                        if (moveDist > 6) {
+                            hasMoved = true;
+                            const rect = graphElem.getBoundingClientRect();
+                            const scale = (Math.abs(draggedNode.z || 0) + 300) * 0.35;
+                            draggedNode.fx = (touchX - rect.left - rect.width / 2) * (scale / rect.width);
+                            draggedNode.fy = (-(touchY - rect.top - rect.height / 2)) * (scale / rect.height);
+                            draggedNode.fz = dragPlaneZ;
+                            Graph.d3ReheatSimulation();
+                        }
+                    };
+
+                    lbl.ontouchend = (e: TouchEvent) => {
+                        if (draggedNode) {
+                            if (!hasMoved) {
+                                e.stopPropagation();
+                                handleNodeClick(node);
+                            }
+                            draggedNode.fx = undefined;
+                            draggedNode.fy = undefined;
+                            draggedNode.fz = undefined;
+                            draggedNode = null;
+                            Graph.controls().enabled = true;
+                        }
+                    };
+
+                    // Desktop click backup
                     lbl.onclick = (e: MouseEvent) => {
                         e.stopPropagation();
-                        if (node.type === 'vocab') {
-                            let loc = nodeToLocationMap.get(node.id);
-                            if (loc) {
-                                let targetFile = this.app.vault.getAbstractFileByPath(loc.path);
-                                if (targetFile instanceof TFile) {
-                                    this.app.workspace.getLeaf(false).openFile(targetFile, { eState: { line: loc.line } });
-                                }
-                            }
-                        }
+                        handleNodeClick(node);
                     };
 
                     overlay.appendChild(lbl);
@@ -597,20 +704,25 @@ class Vocab3DGraphView extends ItemView {
 
                 const mouseMoveHandler = (e: MouseEvent) => {
                     if (!draggedNode) return;
+                    hasMoved = true;
                     const rect = graphElem.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const mouseY = e.clientY - rect.top;
-                    const camera = Graph.camera();
-                    if (camera) {
-                        draggedNode.fx = (mouseX / rect.width - 0.5) * 250;
-                        draggedNode.fy = (-(mouseY / rect.height) + 0.5) * 250;
-                        draggedNode.fz = 0;
+                    const cam = Graph.camera();
+                    if (cam) {
+                        const scale = (Math.abs(draggedNode.z || 0) + 300) * 0.35;
+                        draggedNode.fx = (mouseX - rect.width / 2) * (scale / rect.width);
+                        draggedNode.fy = (-(mouseY - rect.height / 2)) * (scale / rect.height);
+                        draggedNode.fz = dragPlaneZ;
                         Graph.d3ReheatSimulation();
                     }
                 };
 
                 const mouseUpHandler = () => {
                     if (draggedNode) {
+                        if (!hasMoved) {
+                            handleNodeClick(draggedNode);
+                        }
                         draggedNode.fx = undefined;
                         draggedNode.fy = undefined;
                         draggedNode.fz = undefined;
@@ -660,8 +772,13 @@ class Vocab3DGraphView extends ItemView {
                             let el = nodeElements.get(id);
                             if (!el) return;
                             if (typeof node.x !== 'number' || typeof node.y !== 'number' || typeof node.z !== 'number') return;
-                            let nodeDistToCam = Math.sqrt(Math.pow(node.x - camPos.x, 2) + Math.pow(node.y - camPos.y, 2) + Math.pow(node.z - camPos.z, 2));
-                            let pos = new ProjVector3(node.x, node.y, node.z);
+                            
+                            let targetX = node.fx !== undefined ? node.fx : node.x;
+                            let targetY = node.fy !== undefined ? node.fy : node.y;
+                            let targetZ = node.fz !== undefined ? node.fz : node.z;
+
+                            let nodeDistToCam = Math.sqrt(Math.pow(targetX - camPos.x, 2) + Math.pow(targetY - camPos.y, 2) + Math.pow(targetZ - camPos.z, 2));
+                            let pos = new ProjVector3(targetX, targetY, targetZ);
                             pos.project(camera);
 
                             if (pos.z > 1) {
@@ -692,7 +809,7 @@ class Vocab3DGraphView extends ItemView {
                 currentGraphInstance = Graph;
 
             } else {
-				// --- RENDER 2D GRAPH (using bundled vis-network/standalone) ---
+                // --- RENDER 2D GRAPH ---
                 graphElem.style.width = "100%";
                 graphElem.style.height = `${graphWrapper.clientHeight || 500}px`;
                 graphElem.style.position = "relative";
@@ -725,17 +842,12 @@ class Vocab3DGraphView extends ItemView {
                                 const clickedNodeId = params.nodes[0];
                                 const loc = nodeToLocationMap.get(clickedNodeId);
                                 if (loc) {
-                                    const targetFile = this.app.vault.getAbstractFileByPath(loc.path);
-                                    if (targetFile instanceof TFile) {
-                                        const leaf = this.app.workspace.getLeaf(false);
-                                        await leaf.openFile(targetFile, { eState: { line: loc.line } });
-                                    }
+                                    this.openFileAtLine(loc.path, loc.line);
                                 }
                             }
                         });
                     } catch (err: any) {
                         console.error("2D Network Error:", err);
-                        graphElem.innerHTML = `<div style='padding:20px; color:var(--text-error);'>❌ 2D Graph Error: ${err.message}</div>`;
                     }
                 });
             }
@@ -774,7 +886,7 @@ class Vocab3DGraphView extends ItemView {
 
         await updateTopicsForFolder(currentFolder);
 
-		this.resizeHandler = () => {
+        this.resizeHandler = () => {
             if (currentGraphInstance) {
                 currentGraphInstance.width(graphWrapper.clientWidth);
                 currentGraphInstance.height(graphWrapper.clientHeight);
@@ -784,6 +896,7 @@ class Vocab3DGraphView extends ItemView {
                 visNetworkInstance.redraw();
             }
         };
+        window.addEventListener('resize', this.resizeHandler);
     }
 
     async onClose() {
