@@ -99,7 +99,6 @@ class Vocab3DGraphView extends ItemView {
             workspace.revealLeaf(existingLeaf);
             await existingLeaf.openFile(targetFile, { eState: { line } });
         } else {
-            // Use standard getLeaf(false) safely without unsupported property references
             let activeLeaf = workspace.getLeaf(false);
             await activeLeaf.openFile(targetFile, { eState: { line } });
         }

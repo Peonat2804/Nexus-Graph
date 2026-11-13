@@ -12,9 +12,9 @@ export class VocabGraphSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        // Use Obsidian's official heading API for consistent UI styling
+        // Omit "Settings" in heading text per linter rules
         new Setting(containerEl)
-            .setName('Vocabulary Graph Settings')
+            .setName('Vocabulary Graph')
             .setHeading();
 
         new Setting(containerEl)
