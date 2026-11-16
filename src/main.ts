@@ -172,6 +172,104 @@ class Vocab3DGraphView extends ItemView {
         return { activeFont, bg, text, accent, textOnAccent };
     }
 
+    private createCustomNode(
+        id: string,
+        label: string,
+        type: string,
+        bg: string,
+        border: string,
+        textColor: string,
+        badgeVal: string | null = null,
+        location?: any
+    ) {
+        const isTopic = type === 'topic';
+        const isSub = type === 'sub';
+        const isBold = isTopic || isSub;
+
+        const fontWeight = isBold ? '700' : '400';
+        const fontSize = isTopic ? 18 : (isSub ? 14 : 11);
+        const padX = isTopic ? 16 : (isSub ? 12 : 8);
+        const padY = isTopic ? 10 : (isSub ? 7 : 8);
+        const radius = isTopic ? 8 : 6;
+
+        return {
+            id,
+            type,
+            rawLabel: label,
+            badgeVal,
+            borderColor: border,
+            shape: 'custom',
+            cursor: location ? 'pointer' : 'default',
+            ctxRenderer: ({ ctx, x, y, state: { selected, hover } }: any) => {
+                const { activeFont, bg: themeBg, text: themeText, accent, textOnAccent } = this.getLiveThemeStyle();
+
+                // Dynamic colors per node type
+                const fillBg = isTopic ? accent : (type === 'vocab' ? themeBg : bg);
+                const strokeBorder = isTopic ? accent : border;
+                const fillText = isTopic ? textOnAccent : (type === 'vocab' ? themeText : textColor);
+
+                const nodeFont = `${fontWeight} ${fontSize}px ${activeFont}`;
+                ctx.font = nodeFont;
+
+                const textWidth = ctx.measureText(label).width;
+                const w = textWidth + padX * 2;
+                const h = fontSize + padY * 2;
+
+                return {
+                    drawNode() {
+                        ctx.save();
+
+                        // Shadow
+                        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+                        ctx.shadowBlur = 5;
+                        ctx.shadowOffsetX = 1;
+                        ctx.shadowOffsetY = 2;
+
+                        // Main rounded box
+                        ctx.beginPath();
+                        ctx.roundRect(x - w / 2, y - h / 2, w, h, radius);
+                        ctx.fillStyle = fillBg;
+                        ctx.fill();
+
+                        // Border
+                        ctx.shadowColor = 'transparent';
+                        ctx.lineWidth = selected || hover ? 2.2 : 1.5;
+                        ctx.strokeStyle = strokeBorder;
+                        ctx.stroke();
+
+                        // Main text
+                        ctx.font = nodeFont;
+                        ctx.fillStyle = fillText;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(label, x, y + 0.5);
+
+                        // Optional top-right badge pill (only drawn if badgeVal exists)
+                        if (type === 'vocab' && badgeVal) {
+                            const badgeText = badgeVal.toUpperCase();
+                            ctx.font = `700 8px ${activeFont}`;
+                            const badgeW = ctx.measureText(badgeText).width + 10;
+                            const badgeH = 14;
+                            const badgeX = x + w / 2 - badgeW - 4;
+                            const badgeY = y - h / 2 - badgeH / 2;
+
+                            ctx.beginPath();
+                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 7);
+                            ctx.fillStyle = '#EF4444';
+                            ctx.fill();
+
+                            ctx.fillStyle = '#FFFFFF';
+                            ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
+                        }
+
+                        ctx.restore();
+                    },
+                    nodeDimensions: { width: w, height: h }
+                };
+            }
+        };
+    }
+
     async openFileAtLine(path: string, line: number) {
         const targetFile = this.app.vault.getAbstractFileByPath(path);
         if (!(targetFile instanceof TFile)) return;
@@ -527,7 +625,7 @@ class Vocab3DGraphView extends ItemView {
                             const { activeFont, bg, text } = this.getLiveThemeStyle();
 
                             // 1. Match normal box node font size & weight
-                            const nodeFont = `400 10px ${activeFont}`;
+                            const nodeFont = `400 11px ${activeFont}`;
                             ctx.font = nodeFont;
 
                             // 2. Match normal box node tightness (vis-network margin: 8 -> ~9px padding each side, ~29px height)
@@ -588,19 +686,10 @@ class Vocab3DGraphView extends ItemView {
                         }
                     });
                 } else if (currentMode === '2d') {
-                    this.nodesMap.set(id, {
-                        id: id,
-                        label: label,
-                        color: { background: resolvedBg, border: nodeBorder, highlight: { background: nodeBorder, border: '#FFFFFF' } },
-                        font: { color: resolvedTextColor, face: activeFont, size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
-                        shape: 'box',
-                        margin: type === 'topic' ? 14 : 8,
-                        borderRadius: 8,
-                        shadow: true,
-                        type: type,
-                        badgeVal: badgeVal,
-                        cursor: location ? 'pointer' : 'default'
-                    });
+                    this.nodesMap.set(
+                        id,
+                        this.createCustomNode(id, label, type, resolvedBg, nodeBorder, resolvedTextColor, badgeVal, location)
+                    );
                 } else {
                     this.nodesMap.set(id, {
                         id: id,
@@ -1041,8 +1130,14 @@ class Vocab3DGraphView extends ItemView {
                                 font: {
                                     color: textOnAccent,
                                     face: activeFont,
-                                    size: 18,
-                                    bold: true
+                                    size: 20,
+                                    multi: 'html',
+                                    bold: {
+                                        color: textOnAccent,
+                                        face: activeFont,
+                                        size: 20,
+                                        mod: 'bold'
+                                    }
                                 }
                             });
                         }
@@ -1062,7 +1157,14 @@ class Vocab3DGraphView extends ItemView {
                         }
                         updatedNodes.push({
                             id,
-                            font: { face: activeFont }
+                            font: {
+                                face: activeFont,
+                                multi: 'html',
+                                bold: {
+                                    face: activeFont,
+                                    mod: 'bold'
+                                }
+                            }
                         });
                     });
 
