@@ -28,7 +28,10 @@ const branchPalettes = [
     { bg: '#9F1239', border: '#BE123C', light: '#FB7185' }  // 20. Crimson
 ];
 
-function getBranchColors(name: string, isLeafVocab = false) {
+function getBranchColors(name: string, 
+    isLeafVocab = false,
+    isDarkTheme = document.body.classList.contains('theme-dark')
+) {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -39,7 +42,11 @@ function getBranchColors(name: string, isLeafVocab = false) {
     let palette = branchPalettes[index] ?? { bg: '#2C3E50', border: '#1A252F', light: '#5D6D7E' };
 
     if (isLeafVocab) {
-        return { bg: '#17202A', border: palette.bg, light: palette.light };
+        return {
+            bg: isDarkTheme ? '#17202A' : '#F4F6F7',
+            border: palette.bg,
+            light: palette.light 
+        };
     }
     return { bg: palette.bg, border: palette.border, light: palette.light };
 }
@@ -88,6 +95,10 @@ class Vocab3DGraphView extends ItemView {
 
     getDisplayText(): string {
         return "Vocabulary Graph";
+    }
+
+    get isDarkTheme(): boolean {
+        return document.body.classList.contains('theme-dark');
     }
 
     async openFileAtLine(path: string, line: number) {
@@ -439,7 +450,7 @@ class Vocab3DGraphView extends ItemView {
                     bg = colors.bg;
                     border = colors.border;
                 } else {
-                    let colors = getBranchColors(colorKey!, true);
+                    let colors = getBranchColors(colorKey!, true, this.isDarkTheme);
                     bg = colors.bg;
                     border = colors.border;
                 }
@@ -453,14 +464,14 @@ class Vocab3DGraphView extends ItemView {
                         image: url,
                         size: 30,
                         cursor: location ? 'pointer' : 'default',
-                        font: { color: '#FFFFFF' }
+                        font: { color: type === 'vocab' && !this.isDarkTheme ? '#1E1E1E' : '#FFFFFF' }
                     });
                 } else if (currentMode === '2d') {
                     nodesMap.set(id, {
                         id: id,
                         label: label,
                         color: { background: bg, border: border, highlight: { background: border, border: '#FFFFFF' } },
-                        font: { color: '#FFFFFF', face: 'Inter, sans-serif', size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
+                        font: { color: type === 'vocab' && !this.isDarkTheme ? '#1E1E1E' : '#FFFFFF', face: 'Inter, sans-serif', size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
                         shape: 'box',
                         margin: type === 'topic' ? 14 : 8,
                         borderRadius: 8,
@@ -627,7 +638,7 @@ class Vocab3DGraphView extends ItemView {
 
                     let textSpan = lbl.createSpan();
                     textSpan.setText(node.name);
-                    textSpan.setCssStyles({ color: "#FFFFFF" });
+                    textSpan.setCssStyles({ color: this.isDarkTheme && node.type === 'vocab' ? "#FFFFFF" : "#1E1E1E" });
 
                     if (node.badge) {
                         let badgeEl = lbl.createSpan();
@@ -880,6 +891,12 @@ class Vocab3DGraphView extends ItemView {
                 });
             }
         };
+
+        this.registerEvent(
+            this.app.workspace.on('css-change', () => {
+                renderCurrentModeGraph(folderSelect.value, topicSelect.value);
+            })
+        );
 
         folderSelect.addEventListener('change', async (e) => {
             let selectedFolder = (e.target as HTMLSelectElement).value;
