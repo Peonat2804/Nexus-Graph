@@ -136,6 +136,42 @@ class Vocab3DGraphView extends ItemView {
         return document.body.classList.contains('theme-dark');
     }
 
+    private getLiveThemeStyle() {
+        // 1. Read the active theme's font directly from Obsidian's UI container
+        const computedContainer = getComputedStyle(this.containerEl);
+        const activeFont = computedContainer.fontFamily || 'sans-serif';
+
+        // 2. Resolve Obsidian's theme CSS variables via a temporary probe inside this.containerEl
+        const probe = document.createElement('div');
+        probe.style.backgroundColor = 'var(--background-primary)';
+        probe.style.color = 'var(--text-normal)';
+        probe.style.borderColor = 'var(--interactive-accent)';
+        probe.style.display = 'none';
+        this.containerEl.appendChild(probe);
+
+        const probeStyle = getComputedStyle(probe);
+        const isDark = document.body.classList.contains('theme-dark');
+
+        // Use the theme's actual background & text colors (with safe solid fallback if a theme uses transparency)
+        const rawBg = probeStyle.backgroundColor;
+        const isTransparent = !rawBg || rawBg === 'transparent' || rawBg === 'rgba(0, 0, 0, 0)';
+        const bg = isTransparent ? (isDark ? '#1e1e1e' : '#ffffff') : rawBg;
+        const text = probeStyle.color || (isDark ? '#dcddde' : '#222222');
+        const accent = probeStyle.borderColor || '#7c3aed';
+
+        probe.remove();
+
+        // 3. Read --text-on-accent separately
+        const accentProbe = document.createElement('div');
+        accentProbe.style.color = 'var(--text-on-accent)';
+        accentProbe.style.display = 'none';
+        this.containerEl.appendChild(accentProbe);
+        const textOnAccent = getComputedStyle(accentProbe).color || '#ffffff';
+        accentProbe.remove();
+
+        return { activeFont, bg, text, accent, textOnAccent };
+    }
+
     async openFileAtLine(path: string, line: number) {
         const targetFile = this.app.vault.getAbstractFileByPath(path);
         if (!(targetFile instanceof TFile)) return;
@@ -346,28 +382,6 @@ class Vocab3DGraphView extends ItemView {
             return null;
         };
 
-        const createBadgeNodeSvg = (label: string, badgeVal: string, bgColor: string, borderColor: string, textColor: string,fontFamily: string = 'sans-serif') => {
-            let approxWidth = Math.max(120, label.length * 8 + 40);
-            let height = 48;
-            let badgeText = badgeVal.toUpperCase();
-            let badgeWidth = Math.max(45, badgeText.length * 7 + 16);
-            const safeFont = fontFamily.replace(/"/g, "'");
-
-            return `<svg xmlns="http://www.w3.org/2000/svg" width="${approxWidth}" height="${height + 15}" viewBox="0 0 ${approxWidth} ${height + 15}">
-                <defs>
-                    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
-                        <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.3"/>
-                    </filter>
-                </defs>
-                <rect x="5" y="12" width="${approxWidth - 10}" height="${height}" rx="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5" filter="url(#shadow)"/>
-                <text x="${approxWidth / 2}" y="${12 + height / 2 + 1}" fill="${textColor}" font-family="${safeFont}" font-size="13" font-weight="500" text-anchor="middle" dominant-baseline="central">${label}</text>
-                <g transform="translate(${approxWidth - badgeWidth - 8}, 2)">
-                    <rect width="${badgeWidth}" height="22" rx="11" fill="#EF4444" filter="url(#shadow)"/>
-                    <text x="${badgeWidth / 2}" y="11" fill="#FFFFFF" font-family="${safeFont}" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="central">${badgeText}</text>
-                </g>
-            </svg>`;
-        };
-
         let allFiles = this.app.vault.getMarkdownFiles();
         let folderSet = new Set<string>();
         allFiles.forEach(f => {
@@ -498,19 +512,80 @@ class Vocab3DGraphView extends ItemView {
                 const activeFont = getActiveCanvasFont(this.containerEl);
 
                 if (currentMode === '2d' && type === 'vocab' && badgeVal) {
-                    let svgString = createBadgeNodeSvg(label, badgeVal, resolvedBg, border, resolvedTextColor);
-                    let url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
                     this.nodesMap.set(id, {
                         id: id,
-                        shape: 'image',
-                        image: url,
+                        shape: 'custom',
+                        // image: url,
                         size: 30,
                         cursor: location ? 'pointer' : 'default',
                         type: type,
                         badgeVal: badgeVal,
                         rawLabel: label,
                         borderColor: border,
-                        font: { color: resolvedTextColor }
+                        font: { color: resolvedTextColor },
+                        ctxRenderer: ({ ctx, x, y, state: { selected, hover } }: any) => {
+                            const { activeFont, bg, text } = this.getLiveThemeStyle();
+
+                            // 1. Match normal box node font size & weight
+                            const nodeFont = `400 10px ${activeFont}`;
+                            ctx.font = nodeFont;
+
+                            // 2. Match normal box node tightness (vis-network margin: 8 -> ~9px padding each side, ~29px height)
+                            const textWidth = ctx.measureText(label).width;
+                            const w = textWidth + 18;
+                            const h = 29;
+                            const radius = 6;
+
+                            return {
+                                drawNode() {
+                                    ctx.save();
+
+                                    // Subtle shadow matching vis-network default
+                                    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+                                    ctx.shadowBlur = 5;
+                                    ctx.shadowOffsetX = 1;
+                                    ctx.shadowOffsetY = 2;
+
+                                    // Main rounded box
+                                    ctx.beginPath();
+                                    ctx.roundRect(x - w / 2, y - h / 2, w, h, radius);
+                                    ctx.fillStyle = bg;
+                                    ctx.fill();
+
+                                    // Border (1.5px normal, 2px selected/hover)
+                                    ctx.shadowColor = 'transparent';
+                                    ctx.lineWidth = selected || hover ? 2 : 1.5;
+                                    ctx.strokeStyle = border;
+                                    ctx.stroke();
+
+                                    // Label text (centered identically to normal box nodes)
+                                    ctx.font = nodeFont;
+                                    ctx.fillStyle = text;
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'middle';
+                                    ctx.fillText(label, x, y + 0.5);
+
+                                    // Compact, sleek top-right badge pill
+                                    const badgeText = badgeVal.toUpperCase();
+                                    ctx.font = `700 8px ${activeFont}`;
+                                    const badgeW = ctx.measureText(badgeText).width + 10;
+                                    const badgeH = 14;
+                                    const badgeX = x + w / 2 - badgeW - 4;
+                                    const badgeY = y - h / 2 - badgeH / 2;
+
+                                    ctx.beginPath();
+                                    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 7);
+                                    ctx.fillStyle = '#EF4444';
+                                    ctx.fill();
+
+                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
+
+                                    ctx.restore();
+                                },
+                                nodeDimensions: { width: w, height: h }
+                            };
+                        }
                     });
                 } else if (currentMode === '2d') {
                     this.nodesMap.set(id, {
@@ -973,17 +1048,8 @@ class Vocab3DGraphView extends ItemView {
                         }
                         if (node.type === 'vocab') {
                             if (node.badgeVal) {
-                                const svgString = createBadgeNodeSvg(
-                                    node.rawLabel,
-                                    node.badgeVal,
-                                    vocabColors.bgPrimary,
-                                    node.borderColor,
-                                    vocabColors.textNormal,
-                                    activeFont
-                                );
                                 updatedNodes.push({
                                     id,
-                                    image: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString),
                                     font: { color: vocabColors.textNormal }
                                 });
                             } else {
