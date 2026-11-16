@@ -28,10 +28,7 @@ const branchPalettes = [
     { bg: '#9F1239', border: '#BE123C', light: '#FB7185' }  // 20. Crimson
 ];
 
-function getBranchColors(name: string, 
-    isLeafVocab = false,
-    isDarkTheme = document.body.classList.contains('theme-dark')
-) {
+function getBranchColors(name: string, isLeafVocab = false) {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -43,12 +40,21 @@ function getBranchColors(name: string,
 
     if (isLeafVocab) {
         return {
-            bg: isDarkTheme ? '#17202A' : '#F4F6F7',
+            bg: 'var(--background-primary)',
+            // bg: isDarkTheme ? '#17202A' : '#F4F6F7',
             border: palette.bg,
             light: palette.light 
         };
     }
     return { bg: palette.bg, border: palette.border, light: palette.light };
+}
+
+function getThemeColors() {
+    const isDark = document.body.classList.contains('theme-dark');
+    return {
+        bgPrimary: isDark ? '#17202A' : '#F4F6F7',   // Dark slate in dark mode, bright off-white in light mode
+        textNormal: isDark ? '#FFFFFF' : '#1E1E1E'  // White text in dark mode, dark text in light mode
+    };
 }
 
 export default class Vocab3DGraphPlugin extends Plugin {
@@ -83,6 +89,10 @@ class Vocab3DGraphView extends ItemView {
     app: App;
     animationFrameId: number | null = null;
     resizeHandler: (() => void) | null = null;
+
+    private nodesMap = new Map<string, any>();
+
+    private visNetworkInstance: Network | null = null;
 
     constructor(leaf: WorkspaceLeaf, app: App) {
         super(leaf);
@@ -292,7 +302,6 @@ class Vocab3DGraphView extends ItemView {
 
         let currentMode: '3d' | '2d' = '3d';
         let currentGraphInstance: any = null;
-        let visNetworkInstance: any = null;
 
         const sanitize = (text: string) => {
             if (!text) return "";
@@ -312,7 +321,7 @@ class Vocab3DGraphView extends ItemView {
             return null;
         };
 
-        const createBadgeNodeSvg = (label: string, badgeVal: string, bgColor: string, borderColor: string) => {
+        const createBadgeNodeSvg = (label: string, badgeVal: string, bgColor: string, borderColor: string, textColor: string) => {
             let approxWidth = Math.max(120, label.length * 8 + 40);
             let height = 48;
             let badgeText = badgeVal.toUpperCase();
@@ -325,7 +334,7 @@ class Vocab3DGraphView extends ItemView {
                     </filter>
                 </defs>
                 <rect x="5" y="12" width="${approxWidth - 10}" height="${height}" rx="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5" filter="url(#shadow)"/>
-                <text x="${approxWidth / 2}" y="${12 + height / 2 + 1}" fill="#FFFFFF" font-family="Inter, sans-serif" font-size="13" font-weight="500" text-anchor="middle" dominant-baseline="central">${label}</text>
+                <text x="${approxWidth / 2}" y="${12 + height / 2 + 1}" fill="${textColor}" font-family="Inter, sans-serif" font-size="13" font-weight="500" text-anchor="middle" dominant-baseline="central">${label}</text>
                 <g transform="translate(${approxWidth - badgeWidth - 8}, 2)">
                     <rect width="${badgeWidth}" height="22" rx="11" fill="#EF4444" filter="url(#shadow)"/>
                     <text x="${badgeWidth / 2}" y="11" fill="#FFFFFF" font-family="Inter, sans-serif" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="central">${badgeText}</text>
@@ -415,19 +424,19 @@ class Vocab3DGraphView extends ItemView {
             if (currentGraphInstance) {
                 currentGraphInstance = null;
             }
-            if (visNetworkInstance) {
-                visNetworkInstance.destroy();
-                visNetworkInstance = null;
+            if (this.visNetworkInstance) {
+                this.visNetworkInstance.destroy();
+                this.visNetworkInstance = null;
             }
             graphElem.empty();
             overlay.empty();
+            this.nodesMap.clear();
 
             allFiles = this.app.vault.getMarkdownFiles();
             let targetFiles = folderPath === "/" 
                 ? allFiles.filter(f => !f.path.includes('/'))
                 : allFiles.filter(f => f.path.startsWith(folderPath + "/"));
 
-            let nodesMap = new Map<string, any>();
             let linksArray: any[] = [];
             let addedNodes = new Set<string>();
             let nodeToLocationMap = new Map<string, { path: string; line: number }>();
@@ -450,36 +459,46 @@ class Vocab3DGraphView extends ItemView {
                     bg = colors.bg;
                     border = colors.border;
                 } else {
-                    let colors = getBranchColors(colorKey!, true, this.isDarkTheme);
+                    let colors = getBranchColors(colorKey!, true);
                     bg = colors.bg;
                     border = colors.border;
                 }
 
+                const { bgPrimary, textNormal } = getThemeColors();
+                const resolvedBg = type === 'vocab' ? bgPrimary : bg;
+                const resolvedTextColor = type === 'vocab' ? textNormal : '#FFFFFF';
+
                 if (currentMode === '2d' && type === 'vocab' && badgeVal) {
-                    let svgString = createBadgeNodeSvg(label, badgeVal, bg, border);
+                    let svgString = createBadgeNodeSvg(label, badgeVal, resolvedBg, border, resolvedTextColor);
                     let url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
-                    nodesMap.set(id, {
+                    this.nodesMap.set(id, {
                         id: id,
                         shape: 'image',
                         image: url,
                         size: 30,
                         cursor: location ? 'pointer' : 'default',
-                        font: { color: type === 'vocab' && !this.isDarkTheme ? '#1E1E1E' : '#FFFFFF' }
+                        type: type,
+                        badgeVal: badgeVal,
+                        rawLabel: label,
+                        borderColor: border,
+                        font: { color: resolvedTextColor }
                     });
                 } else if (currentMode === '2d') {
-                    nodesMap.set(id, {
+                    this.nodesMap.set(id, {
                         id: id,
                         label: label,
-                        color: { background: bg, border: border, highlight: { background: border, border: '#FFFFFF' } },
-                        font: { color: type === 'vocab' && !this.isDarkTheme ? '#1E1E1E' : '#FFFFFF', face: 'Inter, sans-serif', size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
+                        color: { background: resolvedBg, border: border, highlight: { background: border, border: '#FFFFFF' } },
+                        font: { color: resolvedTextColor, face: 'Inter, sans-serif', size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
                         shape: 'box',
                         margin: type === 'topic' ? 14 : 8,
                         borderRadius: 8,
                         shadow: true,
+                        type: type,
+                        badgeVal: badgeVal,
                         cursor: location ? 'pointer' : 'default'
                     });
                 } else {
-                    nodesMap.set(id, {
+                    this.nodesMap.set(id, {
                         id: id,
                         name: label,
                         badge: badgeVal,
@@ -565,7 +584,7 @@ class Vocab3DGraphView extends ItemView {
 
             linksArray = Array.from(linksSet.values());
 
-            if (nodesMap.size <= 1) {
+            if (this.nodesMap.size <= 1) {
                 const warningDiv = graphElem.createDiv();
                 warningDiv.setCssStyles({ padding: '40px', color: 'var(--text-muted)', textAlign: 'center' });
                 warningDiv.setText(`⚠️ No vocabulary entries found for topic ${topicName}.`);
@@ -577,7 +596,7 @@ class Vocab3DGraphView extends ItemView {
                 const Graph = fgFactory()(graphElem)
                     .backgroundColor('rgba(0,0,0,0)')
                     .graphData({
-                        nodes: Array.from(nodesMap.values()),
+                        nodes: Array.from(this.nodesMap.values()),
                         links: linksArray
                     })
                     .nodeId('id')
@@ -620,7 +639,7 @@ class Vocab3DGraphView extends ItemView {
                     }
                 };
 
-                nodesMap.forEach(node => {
+                this.nodesMap.forEach(node => {
                     let lbl = overlay.createDiv();
                     lbl.setCssStyles({
                         position: "absolute",
@@ -638,7 +657,10 @@ class Vocab3DGraphView extends ItemView {
 
                     let textSpan = lbl.createSpan();
                     textSpan.setText(node.name);
-                    textSpan.setCssStyles({ color: this.isDarkTheme && node.type === 'vocab' ? "#FFFFFF" : "#1E1E1E" });
+                    textSpan.setCssStyles({ color: node.type === 'vocab' ? "var(--text-normal)" : "#1E1E1E" });
+
+                    node.lblEl = lbl;
+                    node.textSpanEl = textSpan;
 
                     if (node.badge) {
                         let badgeEl = lbl.createSpan();
@@ -756,7 +778,7 @@ class Vocab3DGraphView extends ItemView {
                         draggedNode.fx = undefined;
                         draggedNode.fy = undefined;
                         draggedNode.fz = undefined;
-                        nodesMap.forEach(n => {
+                        this.nodesMap.forEach(n => {
                             let el = nodeElements.get(n.id);
                             if (el) el.setCssStyles({ cursor: n.type === 'vocab' ? "pointer" : "grab" });
                         });
@@ -791,14 +813,14 @@ class Vocab3DGraphView extends ItemView {
                     if (camera) {
                         const width = graphWrapper.clientWidth;
                         const height = graphWrapper.clientHeight;
-                        let centerNode = nodesMap.get(centralTopicId);
+                        let centerNode = this.nodesMap.get(centralTopicId);
                         let rootX = centerNode && typeof centerNode.x === 'number' ? centerNode.x : 0;
                         let rootY = centerNode && typeof centerNode.y === 'number' ? centerNode.y : 0;
                         let rootZ = centerNode && typeof centerNode.z === 'number' ? centerNode.z : 0;
                         let camPos = camera.position;
                         let rootDistToCam = Math.sqrt(Math.pow(rootX - camPos.x, 2) + Math.pow(rootY - camPos.y, 2) + Math.pow(rootZ - camPos.z, 2));
 
-                        nodesMap.forEach((node, id) => {
+                        this.nodesMap.forEach((node, id) => {
                             let el = nodeElements.get(id);
                             if (!el) return;
                             if (typeof node.x !== 'number' || typeof node.y !== 'number' || typeof node.z !== 'number') return;
@@ -856,7 +878,7 @@ class Vocab3DGraphView extends ItemView {
                 requestAnimationFrame(() => {
                     try {
                         const data = {
-                            nodes: new DataSet(Array.from(nodesMap.values())),
+                            nodes: new DataSet(Array.from(this.nodesMap.values())),
                             edges: new DataSet(linksArray)
                         };
                         const options = {
@@ -873,10 +895,10 @@ class Vocab3DGraphView extends ItemView {
                             interaction: { hover: true, dragNodes: true }
                         };
 
-                        visNetworkInstance = new Network(graphElem, data, options);
-                        visNetworkInstance.redraw();
+                        this.visNetworkInstance = new Network(graphElem, data, options);
+                        this.visNetworkInstance.redraw();
 
-                        visNetworkInstance.on("click", async (params: any) => {
+                        this.visNetworkInstance.on("click", async (params: any) => {
                             if (params.nodes.length > 0) {
                                 const clickedNodeId = params.nodes[0];
                                 const loc = nodeToLocationMap.get(clickedNodeId);
@@ -894,7 +916,44 @@ class Vocab3DGraphView extends ItemView {
 
         this.registerEvent(
             this.app.workspace.on('css-change', () => {
-                renderCurrentModeGraph(folderSelect.value, topicSelect.value);
+                if (currentMode === '2d' && this.visNetworkInstance) {
+                    const updatedNodes: any[] = [];
+                    const vocabColors = getThemeColors();
+
+                    this.nodesMap.forEach((node, id) => {
+                        if (node.type !== 'vocab') return;
+
+                        if (node.badgeVal) {
+                            const svgString = createBadgeNodeSvg(
+                                node.rawLabel,
+                                node.badgeVal,
+                                vocabColors.bgPrimary,
+                                node.borderColor,
+                                vocabColors.textNormal
+                            );
+                            updatedNodes.push({
+                                id,
+                                image: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString),
+                                font: { color: vocabColors.textNormal }
+                            });
+                        } else {
+                            updatedNodes.push({
+                                id,
+                                color: { background: vocabColors.bgPrimary, border: node.borderColor },
+                                font: { color: vocabColors.textNormal }
+                            });
+                        }
+                    });
+
+                    console.log("Updating 2D nodes with new theme colors:", updatedNodes);
+                    if (updatedNodes.length > 0) {
+                        (this.visNetworkInstance as any).body.data.nodes.update(updatedNodes);
+                        // Give the browser a tick to decode the new SVG data URLs, then redraw the canvas
+                        setTimeout(() => {
+                            this.visNetworkInstance?.redraw();
+                        }, 50);
+                    }
+                }
             })
         );
 
@@ -938,9 +997,9 @@ class Vocab3DGraphView extends ItemView {
                 currentGraphInstance.width(graphWrapper.clientWidth);
                 currentGraphInstance.height(graphWrapper.clientHeight);
             }
-            if (visNetworkInstance) {
+            if (this.visNetworkInstance) {
                 graphElem.setCssStyles({ height: `${graphWrapper.clientHeight || 500}px` });
-                visNetworkInstance.redraw();
+                this.visNetworkInstance.redraw();
             }
         };
         window.addEventListener('resize', this.resizeHandler);
