@@ -50,11 +50,36 @@ function getBranchColors(name: string, isLeafVocab = false) {
 }
 
 function getThemeColors() {
+    const styles = getComputedStyle(document.body);
     const isDark = document.body.classList.contains('theme-dark');
-    return {
-        bgPrimary: isDark ? '#17202A' : '#F4F6F7',   // Dark slate in dark mode, bright off-white in light mode
-        textNormal: isDark ? '#FFFFFF' : '#1E1E1E'  // White text in dark mode, dark text in light mode
-    };
+
+    // Read the actual resolved RGB/Hex values from Obsidian's active theme
+    const bgPrimary = styles.getPropertyValue('--background-primary').trim() || (isDark ? '#1e1e1e' : '#ffffff');
+    const textNormal = styles.getPropertyValue('--text-normal').trim() || (isDark ? '#dcddde' : '#222222');
+
+    return { bgPrimary, textNormal };
+}
+
+function getObsidianAccentColors() {
+    const probe = document.createElement('div');
+    probe.style.backgroundColor = 'var(--interactive-accent)';
+    probe.style.color = 'var(--text-on-accent)';
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+
+    const computed = getComputedStyle(probe);
+    const accentBg = computed.backgroundColor || '#7C3AED';
+    const textOnAccent = computed.color || '#FFFFFF';
+    probe.remove();
+
+    return { accentBg, textOnAccent };
+}
+
+function getActiveCanvasFont(containerEl?: HTMLElement): string {
+    const rawFont = getComputedStyle(containerEl || document.body).fontFamily || 'sans-serif';
+    // Extract the first font in the stack and strip quotes so HTML5 <canvas> parses it reliably
+    // e.g. '"Palatino Linotype", Georgia, serif' -> 'Palatino Linotype, Georgia, serif'
+    return rawFont.replace(/["']/g, '').trim() || 'sans-serif';
 }
 
 export default class Vocab3DGraphPlugin extends Plugin {
@@ -321,11 +346,12 @@ class Vocab3DGraphView extends ItemView {
             return null;
         };
 
-        const createBadgeNodeSvg = (label: string, badgeVal: string, bgColor: string, borderColor: string, textColor: string) => {
+        const createBadgeNodeSvg = (label: string, badgeVal: string, bgColor: string, borderColor: string, textColor: string,fontFamily: string = 'sans-serif') => {
             let approxWidth = Math.max(120, label.length * 8 + 40);
             let height = 48;
             let badgeText = badgeVal.toUpperCase();
             let badgeWidth = Math.max(45, badgeText.length * 7 + 16);
+            const safeFont = fontFamily.replace(/"/g, "'");
 
             return `<svg xmlns="http://www.w3.org/2000/svg" width="${approxWidth}" height="${height + 15}" viewBox="0 0 ${approxWidth} ${height + 15}">
                 <defs>
@@ -334,10 +360,10 @@ class Vocab3DGraphView extends ItemView {
                     </filter>
                 </defs>
                 <rect x="5" y="12" width="${approxWidth - 10}" height="${height}" rx="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5" filter="url(#shadow)"/>
-                <text x="${approxWidth / 2}" y="${12 + height / 2 + 1}" fill="${textColor}" font-family="Inter, sans-serif" font-size="13" font-weight="500" text-anchor="middle" dominant-baseline="central">${label}</text>
+                <text x="${approxWidth / 2}" y="${12 + height / 2 + 1}" fill="${textColor}" font-family="${safeFont}" font-size="13" font-weight="500" text-anchor="middle" dominant-baseline="central">${label}</text>
                 <g transform="translate(${approxWidth - badgeWidth - 8}, 2)">
                     <rect width="${badgeWidth}" height="22" rx="11" fill="#EF4444" filter="url(#shadow)"/>
-                    <text x="${badgeWidth / 2}" y="11" fill="#FFFFFF" font-family="Inter, sans-serif" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="central">${badgeText}</text>
+                    <text x="${badgeWidth / 2}" y="11" fill="#FFFFFF" font-family="${safeFont}" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="central">${badgeText}</text>
                 </g>
             </svg>`;
         };
@@ -452,8 +478,8 @@ class Vocab3DGraphView extends ItemView {
                 let border = '#2A4B7C';
 
                 if (type === 'topic') {
-                    bg = '#2563EB';
-                    border = '#60A5FA';
+                    bg = 'var(--interactive-accent)';
+                    border = 'var(--interactive-accent-hover)';
                 } else if (type === 'sub') {
                     let colors = getBranchColors(colorKey!, false);
                     bg = colors.bg;
@@ -465,8 +491,11 @@ class Vocab3DGraphView extends ItemView {
                 }
 
                 const { bgPrimary, textNormal } = getThemeColors();
-                const resolvedBg = type === 'vocab' ? bgPrimary : bg;
-                const resolvedTextColor = type === 'vocab' ? textNormal : '#FFFFFF';
+                const { accentBg, textOnAccent } = getObsidianAccentColors();
+                const resolvedBg = type === 'topic' ? accentBg : (type === 'vocab' ? bgPrimary : bg);
+                const nodeBorder = type === 'topic' ? accentBg : border;
+                const resolvedTextColor = type === 'topic' ? textOnAccent : (type === 'vocab' ? textNormal : '#FFFFFF');
+                const activeFont = getActiveCanvasFont(this.containerEl);
 
                 if (currentMode === '2d' && type === 'vocab' && badgeVal) {
                     let svgString = createBadgeNodeSvg(label, badgeVal, resolvedBg, border, resolvedTextColor);
@@ -487,8 +516,8 @@ class Vocab3DGraphView extends ItemView {
                     this.nodesMap.set(id, {
                         id: id,
                         label: label,
-                        color: { background: resolvedBg, border: border, highlight: { background: border, border: '#FFFFFF' } },
-                        font: { color: resolvedTextColor, face: 'Inter, sans-serif', size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
+                        color: { background: resolvedBg, border: nodeBorder, highlight: { background: nodeBorder, border: '#FFFFFF' } },
+                        font: { color: resolvedTextColor, face: activeFont, size: type === 'topic' ? 18 : 12, bold: type !== 'vocab' },
                         shape: 'box',
                         margin: type === 'topic' ? 14 : 8,
                         borderRadius: 8,
@@ -657,7 +686,9 @@ class Vocab3DGraphView extends ItemView {
 
                     let textSpan = lbl.createSpan();
                     textSpan.setText(node.name);
-                    textSpan.setCssStyles({ color: node.type === 'vocab' ? "var(--text-normal)" : "#1E1E1E" });
+                    textSpan.setCssStyles({ color: node.type === 'vocab' ? 
+                        "var(--text-normal)" : 
+                        (node.type === 'topic' ? "var(--text-on-accent)" : "#1E1E1E") });
 
                     node.lblEl = lbl;
                     node.textSpanEl = textSpan;
@@ -681,9 +712,9 @@ class Vocab3DGraphView extends ItemView {
                     }
 
                     if (node.type === 'topic') {
-                        lbl.setCssStyles({ fontSize: "16px", fontWeight: "700", padding: "8px 14px", borderRadius: "10px" });
+                        lbl.setCssStyles({ fontSize: "20px", fontWeight: "700", padding: "8px 14px", borderRadius: "10px" });
                     } else if (node.type === 'sub') {
-                        let levelSize = node.level === 1 ? 14 : 11;
+                        let levelSize = node.level === 1 ? 16 : 14;
                         lbl.setCssStyles({ fontSize: levelSize + "px", fontWeight: "600", padding: "5px 10px", borderRadius: "8px" });
                     } else {
                         lbl.setCssStyles({ fontSize: "11px", fontWeight: "500", padding: "5px 8px", borderRadius: "6px" });
@@ -919,39 +950,59 @@ class Vocab3DGraphView extends ItemView {
                 if (currentMode === '2d' && this.visNetworkInstance) {
                     const updatedNodes: any[] = [];
                     const vocabColors = getThemeColors();
+                    const activeFont = getActiveCanvasFont(this.containerEl);
+                    console.log('activeFont for 2D nodes:', activeFont);
 
                     this.nodesMap.forEach((node, id) => {
-                        if (node.type !== 'vocab') return;
-
-                        if (node.badgeVal) {
-                            const svgString = createBadgeNodeSvg(
-                                node.rawLabel,
-                                node.badgeVal,
-                                vocabColors.bgPrimary,
-                                node.borderColor,
-                                vocabColors.textNormal
-                            );
+                        if (node.type === 'topic') {
+                            const { accentBg, textOnAccent } = getObsidianAccentColors();
                             updatedNodes.push({
                                 id,
-                                image: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString),
-                                font: { color: vocabColors.textNormal }
-                            });
-                        } else {
-                            updatedNodes.push({
-                                id,
-                                color: { background: vocabColors.bgPrimary, border: node.borderColor },
-                                font: { color: vocabColors.textNormal }
+                                color: {
+                                    background: accentBg,
+                                    border: accentBg,
+                                    highlight: { background: accentBg, border: '#FFFFFF' }
+                                },
+                                font: {
+                                    color: textOnAccent,
+                                    face: activeFont,
+                                    size: 18,
+                                    bold: true
+                                }
                             });
                         }
+                        if (node.type === 'vocab') {
+                            if (node.badgeVal) {
+                                const svgString = createBadgeNodeSvg(
+                                    node.rawLabel,
+                                    node.badgeVal,
+                                    vocabColors.bgPrimary,
+                                    node.borderColor,
+                                    vocabColors.textNormal,
+                                    activeFont
+                                );
+                                updatedNodes.push({
+                                    id,
+                                    image: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString),
+                                    font: { color: vocabColors.textNormal }
+                                });
+                            } else {
+                                updatedNodes.push({
+                                    id,
+                                    color: { background: vocabColors.bgPrimary, border: node.borderColor },
+                                    font: { color: vocabColors.textNormal, face: activeFont }
+                                });
+                            }
+                        }
+                        updatedNodes.push({
+                            id,
+                            font: { face: activeFont }
+                        });
                     });
 
-                    console.log("Updating 2D nodes with new theme colors:", updatedNodes);
                     if (updatedNodes.length > 0) {
                         (this.visNetworkInstance as any).body.data.nodes.update(updatedNodes);
-                        // Give the browser a tick to decode the new SVG data URLs, then redraw the canvas
-                        setTimeout(() => {
-                            this.visNetworkInstance?.redraw();
-                        }, 50);
+                        this.visNetworkInstance?.redraw();
                     }
                 }
             })
