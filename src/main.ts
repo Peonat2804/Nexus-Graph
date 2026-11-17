@@ -116,7 +116,6 @@ class Vocab3DGraphView extends ItemView {
     resizeHandler: (() => void) | null = null;
 
     private nodesMap = new Map<string, any>();
-
     private visNetworkInstance: Network | null = null;
 
     constructor(leaf: WorkspaceLeaf, app: App) {
@@ -480,34 +479,48 @@ class Vocab3DGraphView extends ItemView {
             return null;
         };
 
-        let allFiles = this.app.vault.getMarkdownFiles();
-        let folderSet = new Set<string>();
-        allFiles.forEach(f => {
-            let lastSlash = f.path.lastIndexOf('/');
-            if (lastSlash !== -1) {
-                folderSet.add(f.path.substring(0, lastSlash));
-            } else {
-                folderSet.add("/");
-            }
-        });
+        const updateFolders = (preserveFolder?: string) => {
+            const allFiles = this.app.vault.getMarkdownFiles();
+            const folderSet = new Set<string>();
 
-        let folders = Array.from(folderSet).sort();
-        folderSelect.innerHTML = "";
-        folders.forEach(folder => {
-            let opt = document.createElement('option');
-            opt.value = folder;
-            opt.textContent = folder;
-            folderSelect.appendChild(opt);
-        });
+            allFiles.forEach(f => {
+                const lastSlash = f.path.lastIndexOf('/');
+                if (lastSlash !== -1) {
+                    folderSet.add(f.path.substring(0, lastSlash));
+                } else {
+                    folderSet.add("/");
+                }
+            });
 
-        let currentFolder = folders.includes("German") 
-            ? "German" 
-            : (folders.length > 0 ? folders[0] : this.app.vault.getRoot().path);
+            const folders = Array.from(folderSet).sort();
+            folderSelect.innerHTML = "";
+            folders.forEach(folder => {
+                const opt = document.createElement('option');
+                opt.value = folder;
+                opt.textContent = folder;
+                folderSelect.appendChild(opt);
+            });
+
+            // 1. Keep preserveFolder if passed & still exists
+            // 2. Otherwise fallback to "German" (initial load) or first available folder
+            const currentFolder = (preserveFolder && folders.includes(preserveFolder))
+                ? preserveFolder
+                : (folders.includes("German")
+                    ? "German"
+                    : (folders.length > 0 ? folders[0] : this.app.vault.getRoot().path));
+
+            folderSelect.value = currentFolder || this.app.vault.getRoot().path;
+            return { folders, currentFolder };
+        };
         
-        folderSelect.value = currentFolder ? currentFolder : this.app.vault.getRoot().path;
+        const { folders, currentFolder } = updateFolders();
 
         const updateTopicsForFolder = async (folderPath: string) => {
-            allFiles = this.app.vault.getMarkdownFiles();
+            graphElem.empty();
+            overlay.empty();
+            this.nodesMap.clear();
+
+            let allFiles = this.app.vault.getMarkdownFiles();
             let targetFiles = folderPath === "/" 
                 ? allFiles.filter(f => !f.path.includes('/'))
                 : allFiles.filter(f => f.path.startsWith(folderPath + "/"));
@@ -570,7 +583,7 @@ class Vocab3DGraphView extends ItemView {
             overlay.empty();
             this.nodesMap.clear();
 
-            allFiles = this.app.vault.getMarkdownFiles();
+            let allFiles = this.app.vault.getMarkdownFiles();
             let targetFiles = folderPath === "/" 
                 ? allFiles.filter(f => !f.path.includes('/'))
                 : allFiles.filter(f => f.path.startsWith(folderPath + "/"));
@@ -852,7 +865,7 @@ class Vocab3DGraphView extends ItemView {
                     textSpan.setText(node.name);
                     textSpan.setCssStyles({ color: node.type === 'vocab' ? 
                         "var(--text-normal)" : 
-                        (node.type === 'topic' ? "var(--text-on-accent)" : "#1E1E1E") });
+                        (node.type === 'topic' ? "var(--text-on-accent)" : "#FFFFFF") });
 
                     node.lblEl = lbl;
                     node.textSpanEl = textSpan;
@@ -1198,7 +1211,19 @@ class Vocab3DGraphView extends ItemView {
 
         refreshBtn.onclick = async () => {
             refreshBtn.setText("↻ Refreshing...");
+
+            const previousFolder = folderSelect.value;
+            const previousTopic = topicSelect.value;
+            updateFolders(previousFolder);
+
+            if (previousFolder && Array.from(folderSelect.options).some(opt => opt.value === previousFolder)) {
+                folderSelect.value = previousFolder;
+            }
             await updateTopicsForFolder(folderSelect.value);
+
+            if (previousTopic && Array.from(topicSelect.options).some(opt => opt.value === previousTopic)) {
+                topicSelect.value = previousTopic;
+            }
             if (topicSelect.value) {
                 await renderCurrentModeGraph(folderSelect.value, topicSelect.value);
             }
