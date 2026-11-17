@@ -788,14 +788,16 @@ class Vocab3DGraphView extends ItemView {
 
                         if (cleanTopic === topicName) {
                             let pathNodes = [];
+                            let pathColorKeys = [];
                             let locationData = { path: file.path, line: lineIndex };
                             let immediateParentSub = cleanSubs.length > 0 ? cleanSubs[cleanSubs.length - 1] : cleanVocab;
-                            let colorKey = immediateParentSub || cleanTopic;
+                            let vocabColorKey = immediateParentSub || cleanTopic;
 
                             if (cleanVocab) {
                                 let vocabId = "V_" + cleanVocab.replace(/[^a-zA-Z0-9]/g, "_");
-                                addNode(vocabId, cleanVocab, 'vocab', 0, colorKey, locationData, nBadgeVal);
+                                addNode(vocabId, cleanVocab, 'vocab', 0, vocabColorKey, locationData, nBadgeVal);
                                 pathNodes.push(vocabId);
+                                pathColorKeys.push(vocabColorKey);
                             }
 
                             for (let j = 0; j < cleanSubs.length; j++) {
@@ -805,6 +807,7 @@ class Vocab3DGraphView extends ItemView {
                                 let levelFromTopic = cleanSubs.length - j; 
                                 addNode(subId, subText, 'sub', levelFromTopic, subText, locationData, null);
                                 pathNodes.push(subId);
+                                pathColorKeys.push(subText);
                             }
 
                             pathNodes.push(centralTopicId);
@@ -814,9 +817,10 @@ class Vocab3DGraphView extends ItemView {
                                 let targetId = pathNodes[i + 1];
                                 let linkKey = sourceId + "->" + targetId;
                                 
+                                let edgeColorKey = pathColorKeys[i];
                                 let edgeColor = '#93C5FD';
-                                if (colorKey && colorKey !== topicName) {
-                                    let branchInfo = getBranchColors(colorKey, false);
+                                if (edgeColorKey && edgeColorKey !== topicName) {
+                                    let branchInfo = getBranchColors(edgeColorKey, false);
                                     edgeColor = branchInfo.light || '#93C5FD';
                                 }
 
