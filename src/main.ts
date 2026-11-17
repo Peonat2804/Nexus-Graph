@@ -60,21 +60,6 @@ function getThemeColors() {
     return { bgPrimary, textNormal };
 }
 
-function getObsidianAccentColors() {
-    const probe = document.createElement('div');
-    probe.style.backgroundColor = 'var(--interactive-accent)';
-    probe.style.color = 'var(--text-on-accent)';
-    probe.style.display = 'none';
-    document.body.appendChild(probe);
-
-    const computed = getComputedStyle(probe);
-    const accentBg = computed.backgroundColor || '#7C3AED';
-    const textOnAccent = computed.color || '#FFFFFF';
-    probe.remove();
-
-    return { accentBg, textOnAccent };
-}
-
 function getActiveCanvasFont(containerEl?: HTMLElement): string {
     const rawFont = getComputedStyle(containerEl || document.body).fontFamily || 'sans-serif';
     // Extract the first font in the stack and strip quotes so HTML5 <canvas> parses it reliably
@@ -142,10 +127,7 @@ class Vocab3DGraphView extends ItemView {
 
         // 2. Resolve Obsidian's theme CSS variables via a temporary probe inside this.containerEl
         const probe = document.createElement('div');
-        probe.style.backgroundColor = 'var(--background-primary)';
-        probe.style.color = 'var(--text-normal)';
-        probe.style.borderColor = 'var(--interactive-accent)';
-        probe.style.display = 'none';
+        probe.addClass('vocab-surface-probe');
         this.containerEl.appendChild(probe);
 
         const probeStyle = getComputedStyle(probe);
@@ -162,8 +144,7 @@ class Vocab3DGraphView extends ItemView {
 
         // 3. Read --text-on-accent separately
         const accentProbe = document.createElement('div');
-        accentProbe.style.color = 'var(--text-on-accent)';
-        accentProbe.style.display = 'none';
+        accentProbe.addClass('vocab-accent-probe');
         this.containerEl.appendChild(accentProbe);
         const textOnAccent = getComputedStyle(accentProbe).color || '#ffffff';
         accentProbe.remove();
@@ -267,6 +248,18 @@ class Vocab3DGraphView extends ItemView {
                 };
             }
         };
+    }
+
+    private getObsidianAccentColors() {
+        const probe = this.containerEl.createDiv({ cls: 'vocab-theme-probe' });
+        document.body.appendChild(probe);
+
+        const computed = getComputedStyle(probe);
+        const accentBg = computed.backgroundColor || '#7C3AED';
+        const textOnAccent = computed.color || '#FFFFFF';
+        probe.remove();
+
+        return { accentBg, textOnAccent };
     }
 
     async openFileAtLine(path: string, line: number) {
@@ -667,7 +660,7 @@ class Vocab3DGraphView extends ItemView {
                 }
 
                 const { bgPrimary, textNormal } = getThemeColors();
-                const { accentBg, textOnAccent } = getObsidianAccentColors();
+                const { accentBg, textOnAccent } = this.getObsidianAccentColors();
                 const resolvedBg = type === 'topic' ? accentBg : (type === 'vocab' ? bgPrimary : bg);
                 const nodeBorder = type === 'topic' ? accentBg : border;
                 const resolvedTextColor = type === 'topic' ? textOnAccent : (type === 'vocab' ? textNormal : '#FFFFFF');
@@ -1182,7 +1175,7 @@ class Vocab3DGraphView extends ItemView {
 
                     this.nodesMap.forEach((node, id) => {
                         if (node.type === 'topic') {
-                            const { accentBg, textOnAccent } = getObsidianAccentColors();
+                            const { accentBg, textOnAccent } = this.getObsidianAccentColors();
                             updatedNodes.push({
                                 id,
                                 color: {

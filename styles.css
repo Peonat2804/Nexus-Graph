@@ -6,3 +6,20 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+.vocab-theme-probe {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    display: none;
+}
+
+.vocab-surface-probe {
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    border-color: var(--interactive-accent);
+    display: none;
+}
+
+.vocab-accent-probe {
+    color: var(--text-on-accent);
+    display: none;
+}
