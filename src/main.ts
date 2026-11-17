@@ -41,7 +41,6 @@ function getBranchColors(name: string, isLeafVocab = false) {
     if (isLeafVocab) {
         return {
             bg: 'var(--background-primary)',
-            // bg: isDarkTheme ? '#17202A' : '#F4F6F7',
             border: palette.bg,
             light: palette.light 
         };
