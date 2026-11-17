@@ -1,4 +1,4 @@
-import { App, ItemView, Plugin, WorkspaceLeaf, TFile } from 'obsidian';
+import { App, ItemView, Plugin, WorkspaceLeaf, TFile, MarkdownView } from 'obsidian';
 import ForceGraph3D from '3d-force-graph';
 import { Network, DataSet } from 'vis-network/standalone';
 import { VocabGraphSettingTab } from './settings';
@@ -481,6 +481,17 @@ class Vocab3DGraphView extends ItemView {
 
         let currentFolder: string | undefined = undefined;
 
+        const getLatestFileContent = async (file: TFile): Promise<string> => {
+            const leaves = this.app.workspace.getLeavesOfType('markdown');
+            for (const leaf of leaves) {
+                const view = leaf.view as { file?: TFile; editor?: { getValue: () => string } };
+                if (view?.file && (view.file === file || view.file.path === file.path) && view.editor) {
+                    return view.editor.getValue();
+                }
+            }
+            return await this.app.vault.read(file);
+        };
+
         const updateFolders = async (preserveFolder?: string) => {
             const allFiles = this.app.vault.getMarkdownFiles();
             const folderSet = new Set<string>();
@@ -490,12 +501,11 @@ class Vocab3DGraphView extends ItemView {
                 let hasTopic = Boolean(cache?.frontmatter?.topic);
 
                 if (!hasTopic) {
-                    const content = await this.app.vault.cachedRead(f);
+                    const content = await getLatestFileContent(f);
                     hasTopic = /\[topic::\s*[^\]]+\]/i.test(content);
                 }
 
                 if (hasTopic) {
-                    console.log(`File: ${f.path}, Has [topic::]: ${hasTopic}`);
                     let lastSlash = f.path.lastIndexOf('/');
                     if (lastSlash === -1) {
                         folderSet.add("/");
@@ -511,6 +521,8 @@ class Vocab3DGraphView extends ItemView {
             }
 
             const folders = Array.from(folderSet).sort();
+            folderSelect.disabled = false;
+            topicSelect.disabled = false;
             folderSelect.innerHTML = "";
 
             // Handle empty vault / no topics found anywhere
@@ -526,10 +538,11 @@ class Vocab3DGraphView extends ItemView {
                     this.visNetworkInstance = null;
                 }
                 graphElem.empty();
-                graphElem.createDiv({
-                    cls: 'empty-state-message',
-                    text: 'No topics found yet. Add a [topic:: Your Topic] tag to any note to get started.'
-                });
+                const warningDiv = graphElem.createDiv();
+                warningDiv.setCssStyles({ padding: '40px', color: 'var(--text-muted)', textAlign: 'center' });
+                warningDiv.setText(`⚠️ No topics found yet. Add a [topic::Your Topic] tag to any note to get started.`);
+                overlay.empty();
+                this.nodesMap.clear();
                 return;
             }
 
@@ -566,7 +579,7 @@ class Vocab3DGraphView extends ItemView {
             let topicsSet = new Set<string>();
 
             for (let file of targetFiles) {
-                let content = await this.app.vault.read(file);
+                let content = await getLatestFileContent(file);
                 let lines = content.split('\n');
                 for (let line of lines) {
                     let segments = line.split('\\');
@@ -1166,7 +1179,6 @@ class Vocab3DGraphView extends ItemView {
                     const updatedNodes: any[] = [];
                     const vocabColors = getThemeColors();
                     const activeFont = getActiveCanvasFont(this.containerEl);
-                    console.log('activeFont for 2D nodes:', activeFont);
 
                     this.nodesMap.forEach((node, id) => {
                         if (node.type === 'topic') {
@@ -1249,12 +1261,24 @@ class Vocab3DGraphView extends ItemView {
 
         refreshBtn.onclick = async () => {
             refreshBtn.setText("↻ Refreshing...");
+            const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+            if (activeView) {
+                await activeView.save();
+            } else {
+                // Fallback if MarkdownView isn't imported: save all open markdown leaves
+                for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+                    const view = leaf.view as { save?: () => Promise<void> };
+                    if (typeof view.save === 'function') {
+                        await view.save();
+                    }
+                }
+            }
 
             const previousFolder = folderSelect.value;
             const previousTopic = topicSelect.value;
-            updateFolders(previousFolder);
+            await updateFolders(previousFolder);
 
-            if (folderSelect.value) {
+            if (!folderSelect.disabled && folderSelect.value) {
                 await updateTopicsForFolder(folderSelect.value);
 
                 if (previousTopic && Array.from(topicSelect.options).some(opt => opt.value === previousTopic)) {
@@ -1271,7 +1295,9 @@ class Vocab3DGraphView extends ItemView {
         };
 
         if (currentFolder) {
+            console.log("5. After updateFolders -> folderSelect.value:", folderSelect.value, "disabled:", folderSelect.disabled);
             await updateTopicsForFolder(currentFolder);
+            console.log("6. After updateTopics -> topicSelect.value:", topicSelect.value, "options:", topicSelect.options.length);
         }
 
         this.resizeHandler = () => {
