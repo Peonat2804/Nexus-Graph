@@ -479,21 +479,64 @@ class Vocab3DGraphView extends ItemView {
             return null;
         };
 
-        const updateFolders = (preserveFolder?: string) => {
+        let currentFolder: string | undefined = undefined;
+
+        const updateFolders = async (preserveFolder?: string) => {
             const allFiles = this.app.vault.getMarkdownFiles();
             const folderSet = new Set<string>();
 
-            allFiles.forEach(f => {
-                const lastSlash = f.path.lastIndexOf('/');
-                if (lastSlash !== -1) {
-                    folderSet.add(f.path.substring(0, lastSlash));
-                } else {
-                    folderSet.add("/");
+            for (const f of allFiles) {
+                const cache = this.app.metadataCache.getFileCache(f);
+                let hasTopic = Boolean(cache?.frontmatter?.topic);
+
+                if (!hasTopic) {
+                    const content = await this.app.vault.cachedRead(f);
+                    hasTopic = /\[topic::\s*[^\]]+\]/i.test(content);
                 }
-            });
+
+                if (hasTopic) {
+                    console.log(`File: ${f.path}, Has [topic::]: ${hasTopic}`);
+                    let lastSlash = f.path.lastIndexOf('/');
+                    if (lastSlash === -1) {
+                        folderSet.add("/");
+                    } else {
+                        // Add the file's folder AND every ancestor folder above it
+                        // e.g. "German/Podcasts" -> adds "German/Podcasts", then "German"
+                        while (lastSlash !== -1) {
+                            folderSet.add(f.path.substring(0, lastSlash));
+                            lastSlash = f.path.lastIndexOf('/', lastSlash - 1);
+                        }
+                    }
+                }
+            }
 
             const folders = Array.from(folderSet).sort();
             folderSelect.innerHTML = "";
+
+            // Handle empty vault / no topics found anywhere
+            if (folders.length === 0) {
+                folderSelect.disabled = true;
+                topicSelect.innerHTML = "";
+                topicSelect.disabled = true;
+
+                // Clear any existing graph and show the empty-state message
+                this.nodesMap.clear();
+                if (this.visNetworkInstance) {
+                    this.visNetworkInstance.destroy();
+                    this.visNetworkInstance = null;
+                }
+                graphElem.empty();
+                graphElem.createDiv({
+                    cls: 'empty-state-message',
+                    text: 'No topics found yet. Add a [topic:: Your Topic] tag to any note to get started.'
+                });
+                return;
+            }
+
+            // Re-enable dropdowns if topics exist
+            folderSelect.disabled = false;
+            topicSelect.disabled = false;
+
             folders.forEach(folder => {
                 const opt = document.createElement('option');
                 opt.value = folder;
@@ -501,19 +544,14 @@ class Vocab3DGraphView extends ItemView {
                 folderSelect.appendChild(opt);
             });
 
-            // 1. Keep preserveFolder if passed & still exists
-            // 2. Otherwise fallback to "German" (initial load) or first available folder
-            const currentFolder = (preserveFolder && folders.includes(preserveFolder))
+            currentFolder = (preserveFolder && folders.includes(preserveFolder))
                 ? preserveFolder
-                : (folders.includes("German")
-                    ? "German"
-                    : (folders.length > 0 ? folders[0] : this.app.vault.getRoot().path));
+                : (folders.includes("German") ? "German" : folders[0]);
 
-            folderSelect.value = currentFolder || this.app.vault.getRoot().path;
-            return { folders, currentFolder };
+            folderSelect.value = currentFolder || '/';
         };
         
-        const { folders, currentFolder } = updateFolders();
+        await updateFolders();
 
         const updateTopicsForFolder = async (folderPath: string) => {
             graphElem.empty();
@@ -1216,16 +1254,16 @@ class Vocab3DGraphView extends ItemView {
             const previousTopic = topicSelect.value;
             updateFolders(previousFolder);
 
-            if (previousFolder && Array.from(folderSelect.options).some(opt => opt.value === previousFolder)) {
-                folderSelect.value = previousFolder;
-            }
-            await updateTopicsForFolder(folderSelect.value);
+            if (folderSelect.value) {
+                await updateTopicsForFolder(folderSelect.value);
 
-            if (previousTopic && Array.from(topicSelect.options).some(opt => opt.value === previousTopic)) {
-                topicSelect.value = previousTopic;
-            }
-            if (topicSelect.value) {
-                await renderCurrentModeGraph(folderSelect.value, topicSelect.value);
+                if (previousTopic && Array.from(topicSelect.options).some(opt => opt.value === previousTopic)) {
+                    topicSelect.value = previousTopic;
+                }
+
+                if (topicSelect.value) {
+                    await renderCurrentModeGraph(folderSelect.value, topicSelect.value);
+                }
             }
             setTimeout(() => {
                 refreshBtn.setText("↻ Refresh");
