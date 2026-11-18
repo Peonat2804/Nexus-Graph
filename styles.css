@@ -23,3 +23,48 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-on-accent);
     display: none;
 }
+
+.vocab-control-select {
+    flex: 1;
+    height: auto;
+    padding: 3px 24px 3px 8px; /* extra right padding leaves room for Obsidian's dropdown arrow */
+    font-size: 11px;
+    cursor: pointer;
+    /* Fallback to guaranteed high-contrast surface + text variables if needed */
+    background-color: var(--background-primary-alt, var(--background-secondary));
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+}
+
+.vocab-control-select option {
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+}
+
+.vocab-mode-btn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    background-color: var(--background-primary-alt, var(--background-secondary));
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.vocab-collapse-btn {
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 1;
+    border-radius: 4px;
+    background-color: var(--background-primary-alt, var(--background-secondary));
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    cursor: pointer;
+}
+
+.vocab-mode-btn:hover,
+.vocab-collapse-btn:hover {
+    background-color: var(--background-modifier-hover);
+}

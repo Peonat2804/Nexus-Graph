@@ -308,17 +308,9 @@ class Vocab3DGraphView extends ItemView {
         const titleSpan = headerRow.createSpan();
         titleSpan.setText("🗺️ GRAPH CONTROLS");
 
-        const collapseBtn = headerRow.createEl('button');
-        collapseBtn.setText("▲");
-        collapseBtn.setCssStyles({
-            padding: "2px 8px",
-            fontSize: "12px",
-            lineHeight: "1",
-            borderRadius: "4px",
-            backgroundColor: "var(--interactive-normal)",
-            color: "var(--text-normal)",
-            border: "1px solid var(--background-modifier-border)",
-            cursor: "pointer"
+        const collapseBtn = headerRow.createEl('button', {
+            cls: 'vocab-collapse-btn',
+            text: '▲'
         });
 
         const controlsBody = topBar.createDiv();
@@ -355,16 +347,8 @@ class Vocab3DGraphView extends ItemView {
             color: "var(--text-muted)"
         });
 
-        const folderSelect = folderGroup.createEl('select');
-        folderSelect.setCssStyles({
-            flex: "1",
-            padding: "3px 6px",
-            borderRadius: "6px",
-            backgroundColor: "var(--interactive-normal)",
-            color: "var(--text-normal)",
-            border: "1px solid var(--background-modifier-border)",
-            fontSize: "11px",
-            cursor: "pointer"
+        const folderSelect = folderGroup.createEl('select', {
+            cls: ['dropdown', 'vocab-control-select']
         });
 
         // Topic Group
@@ -384,30 +368,14 @@ class Vocab3DGraphView extends ItemView {
             color: "var(--text-muted)"
         });
 
-        const topicSelect = topicGroup.createEl('select');
-        topicSelect.setCssStyles({
-            flex: "1",
-            padding: "3px 6px",
-            borderRadius: "6px",
-            backgroundColor: "var(--interactive-normal)",
-            color: "var(--text-normal)",
-            border: "1px solid var(--background-modifier-border)",
-            fontSize: "11px",
-            cursor: "pointer"
+        const topicSelect = topicGroup.createEl('select', {
+            cls: ['dropdown', 'vocab-control-select']
         });
 
         // Mode Toggle Button (3D / 2D)
-        const modeBtn = controlsBody.createEl('button');
-        modeBtn.setText("Mode: 3D 🌐");
-        modeBtn.setCssStyles({
-            padding: "4px 10px",
-            borderRadius: "6px",
-            backgroundColor: "var(--interactive-normal)",
-            color: "var(--text-normal)",
-            border: "1px solid var(--background-modifier-border)",
-            fontSize: "11px",
-            fontWeight: "600",
-            cursor: "pointer"
+        const modeBtn = controlsBody.createEl('button', {
+            cls: 'vocab-mode-btn',
+            text: 'Mode: 3D 🌐'
         });
 
         // Refresh Button
@@ -720,19 +688,19 @@ class Vocab3DGraphView extends ItemView {
                                     ctx.fillText(label, x, y + 0.5);
 
                                     // Compact, sleek top-right badge pill
-                                    const badgeText = badgeVal.toUpperCase();
+                                    const badgeText = badgeVal;
                                     ctx.font = `700 8px ${activeFont}`;
                                     const badgeW = ctx.measureText(badgeText).width + 10;
                                     const badgeH = 14;
-                                    const badgeX = x + w / 2 - badgeW - 4;
-                                    const badgeY = y - h / 2 - badgeH / 2;
+                                    const badgeX = x + w / 2 - badgeW;
+                                    const badgeY = y - h / 2 - badgeH / 2 - 5;
 
                                     ctx.beginPath();
                                     ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 7);
-                                    ctx.fillStyle = '#EF4444';
+                                    ctx.fillStyle = accentBg;
                                     ctx.fill();
 
-                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.fillStyle = textOnAccent;
                                     ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
 
                                     ctx.restore();
@@ -795,9 +763,10 @@ class Vocab3DGraphView extends ItemView {
 
                             if (cleanVocab) {
                                 let vocabId = "V_" + cleanVocab.replace(/[^a-zA-Z0-9]/g, "_");
+                                let vocabParent = cleanSubs.length > 0 ? cleanSubs[0] : cleanTopic;
                                 addNode(vocabId, cleanVocab, 'vocab', 0, vocabColorKey, locationData, nBadgeVal);
                                 pathNodes.push(vocabId);
-                                pathColorKeys.push(vocabColorKey);
+                                pathColorKeys.push(vocabParent);
                             }
 
                             for (let j = 0; j < cleanSubs.length; j++) {
@@ -917,16 +886,17 @@ class Vocab3DGraphView extends ItemView {
                     node.lblEl = lbl;
                     node.textSpanEl = textSpan;
 
+                    const { accentBg, textOnAccent } = this.getObsidianAccentColors();
                     if (node.badge) {
                         let badgeEl = lbl.createSpan();
-                        badgeEl.setText(node.badge.toUpperCase());
+                        badgeEl.setText(node.badge);
                         badgeEl.setCssStyles({
                             position: "absolute",
-                            top: "-10px",
-                            right: "-8px",
-                            backgroundColor: "#EF4444",
-                            color: "#FFFFFF",
-                            fontSize: "9px",
+                            top: "-16px",
+                            right: "0px",
+                            backgroundColor: accentBg,
+                            color: textOnAccent,
+                            fontSize: "8px",
                             fontWeight: "700",
                             padding: "2px 6px",
                             borderRadius: "11px",
