@@ -13,6 +13,8 @@ _(3D & 2D Vocabulary & Mind Map Plugin for Obsidian)_
 	- **Click-to-Navigate:** Clicking any leaf vocabulary node opens the exact source file and jumps straight to the corresponding line.
 - 🎨 **20 Vibrant Branch Palettes:** Automatically color-hashes your branches across 20 distinct visual palettes paired with dark, clean leaf nodes (`#17202A`).
 - ↻ **Live Refresh:** Manually re-indexes your vault instantly whenever you add or modify entries.
+- 🌓 **Adaptive Obsidian Theme & Style Settings:** Dynamically reads active Obsidian theme variables and `styles.css` classes (including Style Settings color overrides) across both light and dark modes—and across 3D and 2D views—without hardcoded inline styles.
+- 📌 **Persistent Pinning:** Pin your preferred **Folder**, **Topic**, and **View Mode** (3D/2D) across sessions, with automatic sync when pinning a topic or clearing stale topic pins when switching or unpinning folders.
 
 ## 📸 Demo Figures
 ![demo](./demo.gif)
@@ -28,6 +30,8 @@ You can tag your vocabularies in many files or wherever you like, then your voca
 > `[vocab::sich um (A) kümmern]` - _to take care of / to look after_ `[topic::[[Common Actions]]]` \ `[sub::Family]` `[topic::[[Relationships]]]`
 - A vocabulary with a badge
 > `[vocab::kriegen]` - `[n::informal]` _to get or receive ~ bekommen or ~ erhalten_ `[topic::[[Common Actions]]] `
+
+**Note:** You can also download the _DataView_ plugin to get the theme treatment for those tags. _DataView_ is also a really great plugin to run JavaScript code inside your note.
 
 ### Supported Tag Types:
 - `[topic:: Name]`: Defines the core central node of the graph.
