@@ -2,8 +2,21 @@ import { App, ItemView, Plugin, WorkspaceLeaf, TFile, MarkdownView } from 'obsid
 import ForceGraph3D from '3d-force-graph';
 import { Network, DataSet } from 'vis-network/standalone';
 import { VocabGraphSettingTab } from './settings';
+import { setIcon } from 'obsidian';
 
 const VIEW_TYPE_3D_GRAPH = 'vocab-3d-graph-view';
+
+export interface VocabGraphSettings {
+    pinnedFolder: string | null;
+    pinnedTopic: string | null;
+    pinnedMode: '3d' | '2d' | null;
+}
+
+const DEFAULT_SETTINGS: VocabGraphSettings = {
+    pinnedFolder: null,
+    pinnedTopic: null,
+    pinnedMode: null,
+};
 
 const branchPalettes = [
     { bg: '#0D9488', border: '#14B8A6', light: '#2DD4BF' }, // 1. Teal
@@ -67,10 +80,14 @@ function getActiveCanvasFont(containerEl?: HTMLElement): string {
 }
 
 export default class Vocab3DGraphPlugin extends Plugin {
+    settings: VocabGraphSettings = { ...DEFAULT_SETTINGS };
+
     async onload() {
+        await this.loadSettings();
+
         this.registerView(
             VIEW_TYPE_3D_GRAPH,
-            (leaf) => new Vocab3DGraphView(leaf, this.app)
+            (leaf) => new Vocab3DGraphView(leaf, this)
         );
 
         this.addCommand({
@@ -92,19 +109,27 @@ export default class Vocab3DGraphPlugin extends Plugin {
         }
         workspace.setActiveLeaf(leaf, { focus: true });
     }
+
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
+
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
 }
 
 class Vocab3DGraphView extends ItemView {
-    app: App;
+    plugin: Vocab3DGraphPlugin;
     animationFrameId: number | null = null;
     resizeHandler: (() => void) | null = null;
 
     private nodesMap = new Map<string, any>();
     private visNetworkInstance: Network | null = null;
 
-    constructor(leaf: WorkspaceLeaf, app: App) {
+    constructor(leaf: WorkspaceLeaf, plugin: Vocab3DGraphPlugin) {
         super(leaf);
-        this.app = app;
+        this.plugin = plugin;
     }
 
     getViewType(): string {
@@ -270,6 +295,98 @@ class Vocab3DGraphView extends ItemView {
         await activeLeaf.openFile(targetFile, { eState: { line } });
     }
 
+    private sanitize = (text: string) => {
+        if (!text) return "";
+        let cleaned = text.replace(/[\[\]]/g, "").replace(/\[\[|\]\]/g, "").trim();
+        if (cleaned.includes("\\s") || cleaned.includes("(^") || (cleaned.includes("\\") && cleaned.length === 1) || cleaned.length === 0) {
+            return "";
+        }
+        return cleaned;
+    };
+
+    private getLatestFileContent = async (file: TFile): Promise<string> => {
+        const leaves = this.app.workspace.getLeavesOfType('markdown');
+        for (const leaf of leaves) {
+            const view = leaf.view as { file?: TFile; editor?: { getValue: () => string } };
+            if (view?.file && (view.file === file || view.file.path === file.path) && view.editor) {
+                return view.editor.getValue();
+            }
+        }
+        return await this.app.vault.read(file);
+    };
+
+    private createPinButton = (
+        parent: HTMLElement,
+        getCurrentValue: () => string,
+        getPinnedValue: () => string | null,
+        setPinnedValue: (val: string | null) => Promise<void>
+    ) => {
+        const pinBtn = parent.createEl('button', {
+            cls: 'vocab-pin-btn',
+            attr: { 'aria-label': 'Pin as default' }
+        });
+
+        const syncPinVisual = () => {
+            const current = getCurrentValue();
+            const pinned = getPinnedValue();
+            const isPinned = Boolean(pinned && current === pinned);
+
+            pinBtn.toggleClass('is-pinned', isPinned);
+            setIcon(pinBtn, isPinned ? 'pin' : 'pin-off');
+            // pinBtn.setText(isPinned ? '📌' : '📍');
+            pinBtn.setAttr(
+                'title',
+                isPinned ? `Pinned (${pinned}) — click to unpin` : 'Pin current selection as default'
+            );
+        };
+
+        pinBtn.onclick = async () => {
+            const current = getCurrentValue();
+            const pinned = getPinnedValue();
+
+            if (pinned && current === pinned) {
+                await setPinnedValue(null); // Unpin
+            } else if (current) {
+                await setPinnedValue(current); // Pin current value
+            }
+            syncPinVisual();
+        };
+
+        syncPinVisual();
+        return { pinBtn, syncPinVisual };
+    };
+
+    private folderHasTopic = async (folderPath: string, topicToCheck: string): Promise<boolean> => {
+        if (!folderPath || !topicToCheck) return false;
+
+        const allFiles = this.app.vault.getMarkdownFiles();
+        const targetFiles = folderPath === "/"
+            ? allFiles.filter(f => !f.path.includes('/'))
+            : allFiles.filter(f => f.path.startsWith(folderPath + "/"));
+
+        const normalizedTarget = this.sanitize(topicToCheck);
+
+        for (const file of targetFiles) {
+            const content = await this.getLatestFileContent(file);
+            const lines = content.split('\n');
+            for (const line of lines) {
+                const segments = line.split('\\');
+                for (const seg of segments) {
+                    for (const topicMatch of seg.matchAll(/\[topic::\s*([^\]]+)\]/gi)) {
+                        if (topicMatch[1]) {
+                            const cleanTopic = this.sanitize(topicMatch[1]);
+                            if (cleanTopic === topicToCheck || this.sanitize(cleanTopic) === normalizedTarget) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    };
+
     async onOpen() {
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
@@ -351,6 +468,29 @@ class Vocab3DGraphView extends ItemView {
             cls: ['dropdown', 'vocab-control-select']
         });
 
+        const folderPin = this.createPinButton(
+            folderGroup,
+            () => folderSelect.value,
+            () => this.plugin.settings.pinnedFolder,
+            async (val) => {
+                this.plugin.settings.pinnedFolder = val;
+
+                if (!val) {
+                    // Unpinning the folder also clears any pinned topic tied to it
+                    this.plugin.settings.pinnedTopic = null;
+                } else if (this.plugin.settings.pinnedTopic) {
+                    // Pinning a different folder clears pinnedTopic if it doesn't belong to this folder
+                    const belongsHere = await this.folderHasTopic(val, this.plugin.settings.pinnedTopic);
+                    if (!belongsHere) {
+                        this.plugin.settings.pinnedTopic = null;
+                    }
+                }
+
+                await this.plugin.saveSettings();
+                topicPin.syncPinVisual();
+            }
+        );
+
         // Topic Group
         const topicGroup = controlsBody.createDiv();
         topicGroup.setCssStyles({
@@ -372,11 +512,46 @@ class Vocab3DGraphView extends ItemView {
             cls: ['dropdown', 'vocab-control-select']
         });
 
+        const topicPin = this.createPinButton(
+            topicGroup,
+            () => topicSelect.value,
+            () => this.plugin.settings.pinnedTopic,
+            async (val) => {
+                this.plugin.settings.pinnedTopic = val;
+
+                // Pinning a topic automatically pins the currently selected folder as well
+                if (val && folderSelect.value) {
+                    this.plugin.settings.pinnedFolder = folderSelect.value;
+                }
+
+                await this.plugin.saveSettings();
+                folderPin.syncPinVisual();
+            }
+        );
+
         // Mode Toggle Button (3D / 2D)
-        const modeBtn = controlsBody.createEl('button', {
+        let currentMode: '3d' | '2d' = this.plugin.settings.pinnedMode ?? '3d';
+        let currentGraphInstance: any = null;
+
+        // Group the Mode button and its Pin button together
+        const modeGroup = controlsBody.createDiv({ cls: 'vocab-control-group' });
+
+        const modeBtn = modeGroup.createEl('button', {
             cls: 'vocab-mode-btn',
-            text: 'Mode: 3D 🌐'
+            text: currentMode === '3d' ? 'Mode: 3D' : 'Mode: 2D'
         });
+
+        const modePin = this.createPinButton(
+            modeGroup,
+            () => currentMode,
+            () => this.plugin.settings.pinnedMode,
+            async (val) => {
+                this.plugin.settings.pinnedMode = val as '3d' | '2d' | null;
+                await this.plugin.saveSettings();
+            }
+        );
+
+        modePin.syncPinVisual();
 
         // Refresh Button
         const refreshBtn = controlsBody.createEl('button');
@@ -393,66 +568,22 @@ class Vocab3DGraphView extends ItemView {
         });
 
         // 2. Graph Canvas Container
-        const graphWrapper = container.createDiv();
-        graphWrapper.setCssStyles({
-            position: "relative",
-            flex: "1",
-            width: "100%",
-            overflow: "hidden"
-        });
-
-        let graphElem = graphWrapper.createDiv();
-        graphElem.setCssStyles({
-            width: "100%",
-            height: "100%"
-        });
-
-        let overlay = graphWrapper.createDiv();
-        overlay.setCssStyles({
-            position: "absolute",
-            top: "0",
-            left: "0",
-            width: "100%",
-            height: "100%",
-            pointerEvents: "none",
-            zIndex: "99"
-        });
-
-        let currentMode: '3d' | '2d' = '3d';
-        let currentGraphInstance: any = null;
-
-        const sanitize = (text: string) => {
-            if (!text) return "";
-            let cleaned = text.replace(/[\[\]]/g, "").replace(/\[\[|\]\]/g, "").trim();
-            if (cleaned.includes("\\s") || cleaned.includes("(^") || (cleaned.includes("\\") && cleaned.length === 1) || cleaned.length === 0) {
-                return "";
-            }
-            return cleaned;
-        };
+        const graphWrapper = container.createDiv({ cls: 'vocab-graph-wrapper' });
+        const graphElem = graphWrapper.createDiv({ cls: 'vocab-graph-canvas' });
+        const overlay = graphWrapper.createDiv({ cls: 'vocab-graph-overlay' });
 
         const extractNBadge = (lineText: string): string | null => {
             if (!lineText) return null;
             let matches = [...lineText.matchAll(/\[(n|N)::\s*([^\]]+)\]/g)];
             if (matches.length > 0 && matches[0] && matches[0][2]) {
-                return sanitize(matches[0][2]);
+                return this.sanitize(matches[0][2]);
             }
             return null;
         };
 
-        let currentFolder: string | undefined = undefined;
+        let currentFolder: string | undefined = this.plugin.settings.pinnedFolder ?? undefined;
 
-        const getLatestFileContent = async (file: TFile): Promise<string> => {
-            const leaves = this.app.workspace.getLeavesOfType('markdown');
-            for (const leaf of leaves) {
-                const view = leaf.view as { file?: TFile; editor?: { getValue: () => string } };
-                if (view?.file && (view.file === file || view.file.path === file.path) && view.editor) {
-                    return view.editor.getValue();
-                }
-            }
-            return await this.app.vault.read(file);
-        };
-
-        const updateFolders = async (preserveFolder?: string) => {
+        const updateFolders = async (preserveFolder?: string): Promise<string | null> => {
             const allFiles = this.app.vault.getMarkdownFiles();
             const folderSet = new Set<string>();
 
@@ -461,7 +592,7 @@ class Vocab3DGraphView extends ItemView {
                 let hasTopic = Boolean(cache?.frontmatter?.topic);
 
                 if (!hasTopic) {
-                    const content = await getLatestFileContent(f);
+                    const content = await this.getLatestFileContent(f);
                     hasTopic = /\[topic::\s*[^\]]+\]/i.test(content);
                 }
 
@@ -503,7 +634,7 @@ class Vocab3DGraphView extends ItemView {
                 warningDiv.setText(`⚠️ No topics found yet. Add a [topic::Your Topic] tag to any note to get started.`);
                 overlay.empty();
                 this.nodesMap.clear();
-                return;
+                return null;
             }
 
             // Re-enable dropdowns if topics exist
@@ -521,12 +652,46 @@ class Vocab3DGraphView extends ItemView {
                 ? preserveFolder
                 : (folders.includes("German") ? "German" : folders[0]);
 
-            folderSelect.value = currentFolder || '/';
+            const resolvedFolder = currentFolder || '/';
+            folderSelect.value = resolvedFolder;
+            return resolvedFolder;
         };
         
-        await updateFolders();
+        const activeFolder = await updateFolders(currentFolder);
+        folderPin.syncPinVisual();
 
-        const updateTopicsForFolder = async (folderPath: string) => {
+        const folderHasTopic = async (folderPath: string, topicToCheck: string): Promise<boolean> => {
+            if (!folderPath || !topicToCheck) return false;
+
+            const allFiles = this.app.vault.getMarkdownFiles();
+            const targetFiles = folderPath === "/"
+                ? allFiles.filter(f => !f.path.includes('/'))
+                : allFiles.filter(f => f.path.startsWith(folderPath + "/"));
+
+            const normalizedTarget = this.sanitize(topicToCheck);
+
+            for (const file of targetFiles) {
+                const content = await this.getLatestFileContent(file);
+                const lines = content.split('\n');
+                for (const line of lines) {
+                    const segments = line.split('\\');
+                    for (const seg of segments) {
+                        for (const topicMatch of seg.matchAll(/\[topic::\s*([^\]]+)\]/gi)) {
+                            if (topicMatch[1]) {
+                                const cleanTopic = this.sanitize(topicMatch[1]);
+                                if (cleanTopic === topicToCheck || this.sanitize(cleanTopic) === normalizedTarget) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        };
+
+        const updateTopicsForFolder = async (folderPath: string, overrideTopic?: string) => {
             graphElem.empty();
             overlay.empty();
             this.nodesMap.clear();
@@ -539,14 +704,14 @@ class Vocab3DGraphView extends ItemView {
             let topicsSet = new Set<string>();
 
             for (let file of targetFiles) {
-                let content = await getLatestFileContent(file);
+                let content = await this.getLatestFileContent(file);
                 let lines = content.split('\n');
                 for (let line of lines) {
                     let segments = line.split('\\');
                     for (let seg of segments) {
                         let topicMatch = seg.match(/\[topic::\s*([^\]]+)\]/);
                         if (topicMatch && topicMatch[1]) {
-                            let cleanTopic = sanitize(topicMatch[1]);
+                            let cleanTopic = this.sanitize(topicMatch[1]);
                             if (cleanTopic) topicsSet.add(cleanTopic);
                         }
                     }
@@ -575,10 +740,17 @@ class Vocab3DGraphView extends ItemView {
                 topicSelect.appendChild(opt);
             });
 
-            if (availableTopics && availableTopics.length > 0 && availableTopics[0]) {
-                const firstTopic = availableTopics[0];
-                topicSelect.value = firstTopic;
-                await renderCurrentModeGraph(folderPath, firstTopic);
+            // Priority: 1) explicit override (e.g., Refresh preserving current topic), 2) pinnedTopic, 3) first topic
+            const candidateTopic = overrideTopic ?? this.plugin.settings.pinnedTopic;
+            const normalizedCandidate = candidateTopic ? this.sanitize(candidateTopic) : null;
+            const matchedTopic = normalizedCandidate
+                ? availableTopics.find(t => t === candidateTopic || this.sanitize(t) === normalizedCandidate)
+                : undefined;
+
+            const selectedTopic = matchedTopic || availableTopics[0];
+            if (selectedTopic) {
+                topicSelect.value = selectedTopic;
+                await renderCurrentModeGraph(folderPath, selectedTopic);
             }
         };
 
@@ -726,6 +898,7 @@ class Vocab3DGraphView extends ItemView {
                     });
                 }
             };
+            console.log(`Rendering graph for topic: ${topicName}`);
 
             let centralTopicId = "T_" + topicName.replace(/[^a-zA-Z0-9]/g, "_");
             addNode(centralTopicId, topicName, 'topic', 0, null, { path: '', line: 0 }, null);
@@ -740,19 +913,19 @@ class Vocab3DGraphView extends ItemView {
                     let line = lines[lineIndex];
                     if (!line) continue; // Skip if the line is undefined
                     let vocabMatch = line.match(/\[vocab::\s*([^\]]+)\]/);
-                    let sharedVocab = vocabMatch && vocabMatch[1] ? sanitize(vocabMatch[1]) : "";
+                    let sharedVocab = vocabMatch && vocabMatch[1] ? this.sanitize(vocabMatch[1]) : "";
                     let nBadgeVal = extractNBadge(line);
                     let segments = line.split('\\');
 
                     for (let seg of segments) {
                         let segVocabMatch = seg.match(/\[vocab::\s*([^\]]+)\]/);
-                        let cleanVocab = (segVocabMatch && segVocabMatch[1]) ? sanitize(segVocabMatch[1]) : sharedVocab;
+                        let cleanVocab = (segVocabMatch && segVocabMatch[1]) ? this.sanitize(segVocabMatch[1]) : sharedVocab;
                         
                         let subMatches = [...seg.matchAll(/\[sub::\s*([^\]]+)\]/g)];
-                        let cleanSubs = subMatches.map(m => (m && m[1]) ? sanitize(m[1]) : "").filter(Boolean);
+                        let cleanSubs = subMatches.map(m => (m && m[1]) ? this.sanitize(m[1]) : "").filter(Boolean);
                         
                         let topicMatch = seg.match(/\[topic::\s*([^\]]+)\]/);
-                        let cleanTopic = (topicMatch && topicMatch[1]) ? sanitize(topicMatch[1]) : topicName;
+                        let cleanTopic = (topicMatch && topicMatch[1]) ? this.sanitize(topicMatch[1]) : topicName;
 
                         if (cleanTopic === topicName) {
                             let pathNodes = [];
@@ -1139,6 +1312,24 @@ class Vocab3DGraphView extends ItemView {
             }
         };
 
+        if (activeFolder) {
+            console.log(`1. Active folder determined: ${activeFolder}`);
+            await updateTopicsForFolder(activeFolder);
+
+            const pinnedTopic = this.plugin.settings.pinnedTopic;
+            console.log(`Pinned topic from settings: ${pinnedTopic}`);
+            if (pinnedTopic && Array.from(topicSelect.options).some(opt => opt.value === pinnedTopic)) {
+                console.log(`Setting topicSelect.value to pinnedTopic: ${pinnedTopic}`);
+                topicSelect.value = pinnedTopic;
+            }
+            topicPin.syncPinVisual();
+
+            if (topicSelect.value) {
+                console.log(`1. Rendering graph for selected topic: ${topicSelect.value}`);
+                await renderCurrentModeGraph(activeFolder, topicSelect.value);
+            }
+        }
+
         this.registerEvent(
             this.app.workspace.on('css-change', () => {
                 if (currentMode === '2d' && this.visNetworkInstance) {
@@ -1206,21 +1397,28 @@ class Vocab3DGraphView extends ItemView {
         );
 
         folderSelect.addEventListener('change', async (e) => {
+            folderPin.syncPinVisual();
             let selectedFolder = (e.target as HTMLSelectElement).value;
+            console.log(`2. Folder changed to: ${selectedFolder}`);
             await updateTopicsForFolder(selectedFolder);
+            topicPin.syncPinVisual();
         });
 
         topicSelect.addEventListener('change', (e) => {
+            topicPin.syncPinVisual();
             let selectedTopic = (e.target as HTMLSelectElement).value;
             if (selectedTopic) {
+                console.log(`2. Rendering graph for selected topic: ${selectedTopic}`);
                 renderCurrentModeGraph(folderSelect.value, selectedTopic);
             }
         });
 
         modeBtn.onclick = async () => {
             currentMode = currentMode === '3d' ? '2d' : '3d';
-            modeBtn.setText(currentMode === '3d' ? "Mode: 3D 🌐" : "Mode: 2D 🗺️");
+            modeBtn.setText(currentMode === '3d' ? "Mode: 3D" : "Mode: 2D");
+            modePin.syncPinVisual();
             if (topicSelect.value) {
+                console.log(`3. Rendering graph for selected topic: ${topicSelect.value} in mode: ${currentMode}`);
                 await renderCurrentModeGraph(folderSelect.value, topicSelect.value);
             }
         };
@@ -1245,6 +1443,7 @@ class Vocab3DGraphView extends ItemView {
             await updateFolders(previousFolder);
 
             if (!folderSelect.disabled && folderSelect.value) {
+                console.log(`3. Refreshing topics for folder: ${folderSelect.value}`);
                 await updateTopicsForFolder(folderSelect.value);
 
                 if (previousTopic && Array.from(topicSelect.options).some(opt => opt.value === previousTopic)) {
@@ -1252,6 +1451,7 @@ class Vocab3DGraphView extends ItemView {
                 }
 
                 if (topicSelect.value) {
+                    console.log(`4. Rendering graph for selected topic: ${topicSelect.value} in mode: ${currentMode}`);
                     await renderCurrentModeGraph(folderSelect.value, topicSelect.value);
                 }
             }
@@ -1260,11 +1460,10 @@ class Vocab3DGraphView extends ItemView {
             }, 400);
         };
 
-        if (currentFolder) {
-            console.log("5. After updateFolders -> folderSelect.value:", folderSelect.value, "disabled:", folderSelect.disabled);
-            await updateTopicsForFolder(currentFolder);
-            console.log("6. After updateTopics -> topicSelect.value:", topicSelect.value, "options:", topicSelect.options.length);
-        }
+        // if (currentFolder) {
+        //     console.log(`5. Initializing topics for current folder: ${currentFolder}`);
+        //     await updateTopicsForFolder(currentFolder);
+        // }
 
         this.resizeHandler = () => {
             if (currentGraphInstance) {
