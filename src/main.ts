@@ -41,6 +41,37 @@ const branchPalettes = [
     { bg: '#9F1239', border: '#BE123C', light: '#FB7185' }  // 20. Crimson
 ];
 
+const CIRCLE_COLOR_MAP: Array<[RegExp, string]> = [
+    [/[🔴🟥]/u, "rgba(239, 68, 68, 0.55)"],     // Red
+    [/[🟠🟧]/u, "rgba(249, 115, 22, 0.55)"],    // Orange
+    [/[🟡🟨]/u, "rgba(234, 179, 8, 0.55)"],     // Yellow
+    [/[🟢🟩]/u, "rgba(34, 197, 94, 0.55)"],     // Green
+    [/[🔵🟦]/u, "rgba(59, 130, 246, 0.55)"],    // Blue
+    [/[🟣🟪]/u, "rgba(168, 85, 247, 0.55)"],    // Purple
+    [/[🟤🟫]/u, "rgba(146, 64, 14, 0.55)"],     // Brown
+    [/[⚫⬛]/u, "rgba(107, 114, 128, 0.55)"],   // Black / Charcoal
+    [/[⚪⬜]/u, "rgba(229, 231, 235, 0.55)"],   // White / Light
+    [/[🩷]/u,   "rgba(244, 114, 182, 0.55)"],   // Pink
+];
+
+const parseCircleHighlight = (rawInner: string): { text: string; circleColor: string | null } => {
+    let circleColor: string | null = null;
+
+    for (const [pattern, color] of CIRCLE_COLOR_MAP) {
+        if (pattern.test(rawInner)) {
+            circleColor = color;
+            break;
+        }
+    }
+
+    const strippedText = rawInner
+        .replace(/[🔴🟠🟡🟢🔵🟣🟤⚫⚪🩷🟥🟧🟨🟩🟦🟪🟫⬛⬜\uFE0E\uFE0F]/gu, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+    return { text: strippedText, circleColor };
+};
+
 function getBranchColors(name: string, isLeafVocab = false) {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -119,6 +150,177 @@ export default class Vocab3DGraphPlugin extends Plugin {
     }
 }
 
+interface HighlightItem {
+    text: string;
+    color: string | null;
+}
+
+interface VocabParseResult {
+    cleanText: string;
+    highlightedText: string | null;
+    highlightColor: string | null; // primary/first highlight color found
+    highlights: HighlightItem[]; // full list per highlighted span
+    isHighlighted: boolean;
+}
+
+interface HighlightMeta {
+    isHighlighted?: boolean;
+    highlightedText?: string | null;
+    highlightColor?: string | null;
+    highlights?: Array<{ text: string; color: string | null }>;
+}
+
+const extractStyleColor = (styleAttr: string): string | null => {
+    // Matches background or background-color up to ';' or end of string
+    const bgMatch = styleAttr.match(/(?:^|;|\s)background(?:-color)?\s*:\s*([^;]+)/i);
+    if (!bgMatch || !bgMatch[1]) return null;
+
+    const rawColor = bgMatch[1].trim();
+    // Avoid unsafe/empty values
+    if (!rawColor || /url\(|expression\(/i.test(rawColor)) return null;
+    return rawColor;
+};
+
+const getObsidianHighlightColor = (): string => {
+    // Reads Obsidian's current theme highlight color (respects light/dark & themes)
+    const probe = document.createElement("span");
+    probe.addClass("vocab-theme-probe");
+    document.body.appendChild(probe);
+    const computed = getComputedStyle(probe).getPropertyValue("--text-highlight-bg").trim()
+        || getComputedStyle(document.body).getPropertyValue("--text-highlight-bg").trim();
+    probe.remove();
+
+    return computed || "#FFB86C";
+};
+
+interface ThemeHighlightStyle {
+    bgColor: string;
+    textColor: string | null;
+}
+
+const getThemeHighlightStyle = (): ThemeHighlightStyle => {
+    const probe = document.createElement("span");
+    probe.addClass("vocab-theme-probe");
+
+    // Also attach a real <mark> inside the probe so computed styles reflect theme rules
+    const markEl = document.createElement("mark");
+    markEl.textContent = "sample";
+    probe.appendChild(markEl);
+
+    document.body.appendChild(probe);
+
+    const markStyle = getComputedStyle(markEl);
+    const bodyStyle = getComputedStyle(document.body);
+
+    const cssVarBg =
+        getComputedStyle(probe).getPropertyValue("--text-highlight-bg").trim() ||
+        bodyStyle.getPropertyValue("--text-highlight-bg").trim();
+
+    const computedMarkBg = markStyle.backgroundColor;
+    const hasExplicitMarkBg =
+        computedMarkBg &&
+        computedMarkBg !== "rgba(0, 0, 0, 0)" &&
+        computedMarkBg !== "transparent";
+
+    const cssVarFg =
+        getComputedStyle(probe).getPropertyValue("--text-highlight-fg").trim() ||
+        bodyStyle.getPropertyValue("--text-highlight-fg").trim();
+
+    const computedMarkFg = markStyle.color;
+
+    probe.remove();
+
+    return {
+        bgColor: hasExplicitMarkBg ? computedMarkBg : (cssVarBg || "rgba(255, 184, 235, 0.45)"),
+        textColor: cssVarFg || computedMarkFg || null,
+    };
+};
+
+export interface ThemeHighlightInterface {
+    bgColor: string;
+    textColor: string | null;
+    borderRadius: number;
+    paddingX: number;
+    paddingY: number;
+    borderBottomColor: string | null;
+    borderBottomWidth: number;
+}
+
+const parsePx = (value: string | null | undefined, fallback = 0): number => {
+    if (!value) return fallback;
+    const n = parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+};
+
+const isTransparentColor = (color: string | null | undefined): boolean => {
+    if (!color) return true;
+    const c = color.trim().toLowerCase();
+    return c === "" || c === "transparent" || c === "rgba(0, 0, 0, 0)" || c === "rgba(0,0,0,0)";
+};
+
+const getThemeHighlightInterface = (containerEl?: HTMLElement): ThemeHighlightInterface => {
+    const host = containerEl ?? document.body;
+    const probe = document.createElement("span");
+    probe.addClass("vocab-theme-probe");
+
+    const markEl = document.createElement("mark");
+    markEl.textContent = "sample";
+    probe.appendChild(markEl);
+    host.appendChild(probe);
+
+    const markStyle = getComputedStyle(markEl);
+    const probeStyle = getComputedStyle(probe);
+    const bodyStyle = getComputedStyle(document.body);
+
+    const varBg =
+        probeStyle.getPropertyValue("--text-highlight-bg").trim() ||
+        bodyStyle.getPropertyValue("--text-highlight-bg").trim();
+
+    const varFg =
+        probeStyle.getPropertyValue("--text-highlight-fg").trim() ||
+        bodyStyle.getPropertyValue("--text-highlight-fg").trim();
+
+    const markBg = markStyle.backgroundColor;
+    const bgColor = !isTransparentColor(markBg)
+        ? markBg
+        : (varBg || "rgba(255, 184, 235, 0.45)");
+
+    // const textColor = !isTransparentColor(varFg)
+    //     ? varFg
+    //     : (!isTransparentColor(markStyle.color) ? markStyle.color : null);
+    const textColor = "var(--text-normal)";
+
+    // Radius: prefer top-left radius, fall back to general border-radius
+    const radiusPx =
+        parsePx(markStyle.borderTopLeftRadius, NaN) ||
+        parsePx(markStyle.borderRadius, 3);
+
+    const padX = Math.max(0, Math.min(8, parsePx(markStyle.paddingLeft, 2)));
+    const padY = Math.max(0, Math.min(6, parsePx(markStyle.paddingTop, 0)));
+
+    const bottomWidth =
+        markStyle.borderBottomStyle && markStyle.borderBottomStyle !== "none"
+            ? parsePx(markStyle.borderBottomWidth, 0)
+            : 0;
+
+    const bottomColor =
+        bottomWidth > 0 && !isTransparentColor(markStyle.borderBottomColor)
+            ? markStyle.borderBottomColor
+            : null;
+
+    probe.remove();
+
+    return {
+        bgColor,
+        textColor,
+        borderRadius: Number.isFinite(radiusPx) ? radiusPx : 3,
+        paddingX: padX,
+        paddingY: padY,
+        borderBottomColor: bottomColor,
+        borderBottomWidth: bottomWidth,
+    };
+};
+
 class Vocab3DGraphView extends ItemView {
     plugin: Vocab3DGraphPlugin;
     animationFrameId: number | null = null;
@@ -184,11 +386,17 @@ class Vocab3DGraphView extends ItemView {
         border: string,
         textColor: string,
         badgeVal: string | null = null,
-        location?: any
+        location?: any,
+        highlightMeta: HighlightMeta = {}
     ) {
         const isTopic = type === 'topic';
         const isSub = type === 'sub';
         const isBold = isTopic || isSub;
+
+        const isHighlighted = Boolean(highlightMeta.isHighlighted);
+        const highlightedText = highlightMeta.highlightedText ?? null;
+        const highlightColor = highlightMeta.highlightColor ?? null;
+        const highlights = highlightMeta.highlights ?? [];
 
         const fontWeight = isBold ? '700' : '400';
         const fontSize = isTopic ? 18 : (isSub ? 14 : 11);
@@ -219,6 +427,27 @@ class Vocab3DGraphView extends ItemView {
                 const w = textWidth + padX * 2;
                 const h = fontSize + padY * 2;
 
+                // Collect highlighted substrings & their colors for vocab nodes
+                const highlightTargets: Array<{ text: string; color: string }> = [];
+                if (type === 'vocab' && isHighlighted) {
+                    const fallbackColor = highlightColor || getThemeHighlightStyle().bgColor;
+                    if (highlights.length > 0) {
+                        for (const item of highlights) {
+                            if (item.text) {
+                                highlightTargets.push({
+                                    text: item.text,
+                                    color: item.color || fallbackColor,
+                                });
+                            }
+                        }
+                    } else if (highlightedText) {
+                        highlightTargets.push({
+                            text: highlightedText,
+                            color: fallbackColor,
+                        });
+                    }
+                }
+
                 return {
                     drawNode() {
                         ctx.save();
@@ -240,6 +469,37 @@ class Vocab3DGraphView extends ItemView {
                         ctx.lineWidth = selected || hover ? 2.2 : 1.5;
                         ctx.strokeStyle = strokeBorder;
                         ctx.stroke();
+
+                        // PDF / note-style marker stroke behind highlighted word(s)
+                        if (highlightTargets.length > 0) {
+                            ctx.save();
+                            ctx.font = nodeFont;
+                            const labelStartX = x - textWidth / 2;
+                            const markerHeight = Math.min(fontSize + 4, h - 8);
+                            const markerY = y - markerHeight / 2 + 0.5;
+
+                            for (const target of highlightTargets) {
+                                const matchIdx = label.toLowerCase().indexOf(target.text.toLowerCase());
+                                if (matchIdx === -1) continue;
+
+                                const matchedSlice = label.slice(matchIdx, matchIdx + target.text.length);
+                                const prefixWidth = ctx.measureText(label.slice(0, matchIdx)).width;
+                                const matchWidth = ctx.measureText(matchedSlice).width;
+
+                                const hasExplicitAlpha =
+                                    /^rgba?\([^)]*,\s*[\d.]+\s*\)$/i.test(target.color) ||
+                                    /^hsla?\([^)]*,\s*[\d.]+\s*\)$/i.test(target.color) ||
+                                    /^#[0-9a-f]{8}$/i.test(target.color);
+
+                                ctx.beginPath();
+                                ctx.roundRect(labelStartX + prefixWidth - 2, markerY, matchWidth + 4, markerHeight, 3);
+                                ctx.fillStyle = target.color;
+                                ctx.globalAlpha = hasExplicitAlpha ? 0.85 : 0.42;
+                                ctx.fill();
+                            }
+
+                            ctx.restore();
+                        }
 
                         // Main text
                         ctx.font = nodeFont;
@@ -291,8 +551,58 @@ class Vocab3DGraphView extends ItemView {
         if (!(targetFile instanceof TFile)) return;
 
         const { workspace } = this.app;
-        let activeLeaf = workspace.getLeaf(false);
-        await activeLeaf.openFile(targetFile, { eState: { line } });
+
+        let existingLeaf: WorkspaceLeaf | null = null;
+        workspace.iterateAllLeaves((leaf) => {
+            if (existingLeaf) return;
+            if (leaf.view instanceof MarkdownView && leaf.view.file?.path === targetFile.path) {
+                existingLeaf = leaf;
+            }
+        });
+
+        const targetLeaf = existingLeaf ?? workspace.getLeaf("tab");
+        if (!targetLeaf) return;
+
+        const lineCount =
+            targetLeaf.view instanceof MarkdownView && targetLeaf.view.editor
+                ? targetLeaf.view.editor.lineCount()
+                : undefined;
+        const safeLine =
+            lineCount !== undefined
+                ? Math.max(0, Math.min(line, Math.max(0, lineCount - 1)))
+                : Math.max(0, line);
+
+        workspace.setActiveLeaf(targetLeaf, { focus: true });
+
+        const alreadyShowingFile =
+            existingLeaf !== null &&
+            targetLeaf.view instanceof MarkdownView &&
+            targetLeaf.view.file?.path === targetFile.path;
+
+        if (!alreadyShowingFile) {
+            await targetLeaf.openFile(targetFile, { eState: { line: safeLine } });
+        }
+
+        // Re-trigger Obsidian's jump-to-line state even when the file was already open
+        targetLeaf.setEphemeralState({ line: safeLine });
+
+        if (targetLeaf.view instanceof MarkdownView && targetLeaf.view.editor) {
+            const editor = targetLeaf.view.editor;
+            const clampedLine = Math.max(0, Math.min(safeLine, Math.max(0, editor.lineCount() - 1)));
+            const lineText = editor.getLine(clampedLine) ?? "";
+
+            editor.setSelection(
+                { line: clampedLine, ch: 0 },
+                { line: clampedLine, ch: 0 }
+            );
+
+            requestAnimationFrame(() => {
+                editor.scrollIntoView(
+                    { from: { line: clampedLine, ch: 0 }, to: { line: clampedLine, ch: 0 } },
+                    true
+                );
+            });
+        }
     }
 
     private sanitize = (text: string) => {
@@ -333,7 +643,6 @@ class Vocab3DGraphView extends ItemView {
 
             pinBtn.toggleClass('is-pinned', isPinned);
             setIcon(pinBtn, isPinned ? 'pin' : 'pin-off');
-            // pinBtn.setText(isPinned ? '📌' : '📍');
             pinBtn.setAttr(
                 'title',
                 isPinned ? `Pinned (${pinned}) — click to unpin` : 'Pin current selection as default'
@@ -385,6 +694,58 @@ class Vocab3DGraphView extends ItemView {
         }
 
         return false;
+    };
+
+    private extractVocabWithMark = (rawValue: string): VocabParseResult => {
+        const highlights: HighlightItem[] = [];
+        const defaultHighlightColor = getObsidianHighlightColor();
+
+        // 1. <mark ...>...</mark> (captures optional style="..." and inner text)
+        for (const match of rawValue.matchAll(/<mark\b([^>]*)>([\s\S]*?)<\/mark>/gi)) {
+            const attrString = match[1] ?? "";
+            const innerText = this.sanitize((match[2] ?? "").replace(/<[^>]*>/g, "").trim());
+            if (!innerText) continue;
+
+            const styleMatch = attrString.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i);
+            const parsedColor = styleMatch && styleMatch[2] ? extractStyleColor(styleMatch[2]) : null;
+
+            highlights.push({
+                text: innerText,
+                color: parsedColor || defaultHighlightColor,
+            });
+        }
+
+        // 2. ==...== Obsidian highlight syntax
+        for (const match of rawValue.matchAll(/(?<![=])==([^=\n]+?)==(?![=])/g)) {
+            const { text: withoutCircles, circleColor } = parseCircleHighlight(
+                (match[1] ?? "").replace(/<[^>]*>/g, "").trim()
+            );
+            const innerText = this.sanitize(withoutCircles);
+            if (!innerText) continue;
+
+            highlights.push({
+                text: innerText,
+                color: circleColor || defaultHighlightColor,
+            });
+        }
+
+        // 3. Clean text without highlight markers/HTML tags
+        const withoutMarkers = rawValue
+            .replace(/(?<![=])==([^=\n]+?)==(?![=])/g, "$1")
+            .replace(/<mark\b[^>]*>([\s\S]*?)<\/mark>/gi, "$1")
+            .replace(/<[^>]*>/g, "");
+
+        const { text: cleanedLabel } = parseCircleHighlight(withoutMarkers);
+        const cleanText = this.sanitize(cleanedLabel);
+        const uniqueTexts = Array.from(new Set(highlights.map((h) => h.text)));
+
+        return {
+            cleanText,
+            highlightedText: uniqueTexts.length > 0 ? uniqueTexts.join(", ") : null,
+            highlightColor: highlights[0]?.color ?? null,
+            highlights,
+            isHighlighted: highlights.length > 0,
+        };
     };
 
     async onOpen() {
@@ -775,12 +1136,26 @@ class Vocab3DGraphView extends ItemView {
             let addedNodes = new Set<string>();
             let nodeToLocationMap = new Map<string, { path: string; line: number }>();
 
-            const addNode = (id: string, label: string, type: string, levelFromTopic = 0, colorKey: string | null = null, location: any = null, badgeVal: string | null = null) => {
+            const addNode = (
+                id: string,
+                label: string, 
+                type: string, 
+                levelFromTopic = 0, 
+                colorKey: string | null = null, 
+                location: any = null, 
+                badgeVal: string | null = null,
+                highlightMeta: HighlightMeta = {}
+            ) => {
                 if (location && !nodeToLocationMap.has(id)) {
                     nodeToLocationMap.set(id, location);
                 }
                 if (addedNodes.has(id)) return;
                 addedNodes.add(id);
+
+                const isHighlighted = Boolean(highlightMeta.isHighlighted);
+                const highlightedText = highlightMeta.highlightedText ?? null;
+                const highlightColor = highlightMeta.highlightColor ?? null;
+                const highlights = highlightMeta.highlights ?? [];
 
                 let bg = '#4A90E2';
                 let border = '#2A4B7C';
@@ -816,6 +1191,10 @@ class Vocab3DGraphView extends ItemView {
                         badgeVal: badgeVal,
                         rawLabel: label,
                         borderColor: border,
+                        isHighlighted,
+                        highlightedText,
+                        highlightColor,
+                        highlights,
                         font: { color: resolvedTextColor },
                         ctxRenderer: ({ ctx, x, y, state: { selected, hover } }: any) => {
                             const { activeFont, bg, text } = this.getLiveThemeStyle();
@@ -829,6 +1208,26 @@ class Vocab3DGraphView extends ItemView {
                             const w = textWidth + 18;
                             const h = 29;
                             const radius = 6;
+
+                            const highlightTargets: Array<{ text: string; color: string }> = [];
+                                if (isHighlighted) {
+                                    const fallbackColor = highlightColor || getThemeHighlightStyle().bgColor;
+                                    if (highlights.length > 0) {
+                                        for (const item of highlights) {
+                                            if (item.text) {
+                                                highlightTargets.push({
+                                                    text: item.text,
+                                                    color: item.color || fallbackColor,
+                                                });
+                                            }
+                                        }
+                                    } else if (highlightedText) {
+                                        highlightTargets.push({
+                                            text: highlightedText,
+                                            color: fallbackColor,
+                                        });
+                                    }
+                                }
 
                             return {
                                 drawNode() {
@@ -851,6 +1250,37 @@ class Vocab3DGraphView extends ItemView {
                                     ctx.lineWidth = selected || hover ? 2 : 1.5;
                                     ctx.strokeStyle = border;
                                     ctx.stroke();
+
+                                    if (highlightTargets.length > 0) {
+                                        ctx.save();
+                                        ctx.font = nodeFont;
+                                        const labelStartX = x - textWidth / 2;
+                                        const markerHeight = 15;
+                                        const markerY = y - markerHeight / 2 + 0.5;
+
+                                        for (const target of highlightTargets) {
+                                            const matchIdx = label.toLowerCase().indexOf(target.text.toLowerCase());
+                                            if (matchIdx === -1) continue;
+
+                                            const matchedSlice = label.slice(matchIdx, matchIdx + target.text.length);
+                                            const prefixWidth = ctx.measureText(label.slice(0, matchIdx)).width;
+                                            const matchWidth = ctx.measureText(matchedSlice).width;
+
+                                            // If the theme/inline color already has alpha (rgba/hsla or 8-digit hex), keep a lighter multiplier
+                                            const hasExplicitAlpha =
+                                                /^rgba?\([^)]*,\s*[\d.]+\s*\)$/i.test(target.color) ||
+                                                /^hsla?\([^)]*,\s*[\d.]+\s*\)$/i.test(target.color) ||
+                                                /^#[0-9a-f]{8}$/i.test(target.color);
+
+                                            ctx.beginPath();
+                                            ctx.roundRect(labelStartX + prefixWidth - 2, markerY, matchWidth + 4, markerHeight, 3);
+                                            ctx.fillStyle = target.color;
+                                            ctx.globalAlpha = hasExplicitAlpha ? 0.85 : 0.42;
+                                            ctx.fill();
+                                        }
+
+                                        ctx.restore();
+                                    }
 
                                     // Label text (centered identically to normal box nodes)
                                     ctx.font = nodeFont;
@@ -884,7 +1314,10 @@ class Vocab3DGraphView extends ItemView {
                 } else if (currentMode === '2d') {
                     this.nodesMap.set(
                         id,
-                        this.createCustomNode(id, label, type, resolvedBg, nodeBorder, resolvedTextColor, badgeVal, location)
+                        this.createCustomNode(
+                            id, label, type, resolvedBg, nodeBorder, 
+                            resolvedTextColor, badgeVal, location,
+                            { isHighlighted, highlightedText, highlightColor, highlights })
                     );
                 } else {
                     this.nodesMap.set(id, {
@@ -894,7 +1327,11 @@ class Vocab3DGraphView extends ItemView {
                         colors: { bg, border },
                         type: type,
                         level: levelFromTopic,
-                        val: 0.001
+                        val: 0.001,
+                        isHighlighted,
+                        highlightedText,
+                        highlightColor,
+                        highlights
                     });
                 }
             };
@@ -913,16 +1350,33 @@ class Vocab3DGraphView extends ItemView {
                     let line = lines[lineIndex];
                     if (!line) continue; // Skip if the line is undefined
                     let vocabMatch = line.match(/\[vocab::\s*([^\]]+)\]/);
-                    let sharedVocab = vocabMatch && vocabMatch[1] ? this.sanitize(vocabMatch[1]) : "";
+                    let parsedSharedVocab = vocabMatch && vocabMatch[1] 
+                        ? this.extractVocabWithMark(vocabMatch[1])
+                        : {
+                            cleanText: "",
+                            highlightedText: null,
+                            highlightColor: null,
+                            highlights: [],
+                            isHighlighted: false,
+                          };
                     let nBadgeVal = extractNBadge(line);
                     let segments = line.split('\\');
 
                     for (let seg of segments) {
                         let segVocabMatch = seg.match(/\[vocab::\s*([^\]]+)\]/);
-                        let cleanVocab = (segVocabMatch && segVocabMatch[1]) ? this.sanitize(segVocabMatch[1]) : sharedVocab;
+                        let parsedSegVocab = (segVocabMatch && segVocabMatch[1]) 
+                            ? this.extractVocabWithMark(segVocabMatch[1]) 
+                            : parsedSharedVocab;
+
+                        let cleanVocab = parsedSegVocab.cleanText;
+                        let vocabHighlight = parsedSegVocab.highlightedText;
+                        let vocabHighlightColor = parsedSegVocab.highlightColor;
+                        let vocabHighlights = parsedSegVocab.highlights;
+                        let isVocabHighlighted = parsedSegVocab.isHighlighted;
                         
                         let subMatches = [...seg.matchAll(/\[sub::\s*([^\]]+)\]/g)];
-                        let cleanSubs = subMatches.map(m => (m && m[1]) ? this.sanitize(m[1]) : "").filter(Boolean);
+                        let cleanSubs = subMatches.map(m => (m && m[1]) 
+                            ? this.sanitize(m[1]) : "").filter(Boolean);
                         
                         let topicMatch = seg.match(/\[topic::\s*([^\]]+)\]/);
                         let cleanTopic = (topicMatch && topicMatch[1]) ? this.sanitize(topicMatch[1]) : topicName;
@@ -937,7 +1391,20 @@ class Vocab3DGraphView extends ItemView {
                             if (cleanVocab) {
                                 let vocabId = "V_" + cleanVocab.replace(/[^a-zA-Z0-9]/g, "_");
                                 let vocabParent = cleanSubs.length > 0 ? cleanSubs[0] : cleanTopic;
-                                addNode(vocabId, cleanVocab, 'vocab', 0, vocabColorKey, locationData, nBadgeVal);
+                                addNode(
+                                    vocabId, 
+                                    cleanVocab, 
+                                    'vocab', 
+                                    0, 
+                                    vocabColorKey, 
+                                    locationData, 
+                                    nBadgeVal,
+                                    {
+                                        isHighlighted: isVocabHighlighted,
+                                        highlightedText: vocabHighlight,
+                                        highlightColor: vocabHighlightColor,
+                                        highlights: vocabHighlights,
+                                    });
                                 pathNodes.push(vocabId);
                                 pathColorKeys.push(vocabParent);
                             }
@@ -985,6 +1452,117 @@ class Vocab3DGraphView extends ItemView {
                 warningDiv.setText(`⚠️ No vocabulary entries found for topic ${topicName}.`);
                 return;
             }
+
+            const renderHighlightedLabel = (
+                container: HTMLElement,
+                fullText: string,
+                node: any,
+                themeHighlight: ThemeHighlightInterface,
+                normalTextColor: string
+            ) => {
+                container.empty();
+                container.setCssStyles({ color: normalTextColor });
+
+                const targets: Array<{ text: string; color: string }> = [];
+                if (node.type === 'vocab' && node.isHighlighted) {
+                    const fallbackColor = node.highlightColor || themeHighlight.bgColor;
+                    if (Array.isArray(node.highlights) && node.highlights.length > 0) {
+                        for (const item of node.highlights) {
+                            if (item?.text) {
+                                targets.push({
+                                    text: item.text,
+                                    color: item.color || fallbackColor,
+                                });
+                            }
+                        }
+                    } else if (node.highlightedText) {
+                        targets.push({
+                            text: node.highlightedText,
+                            color: fallbackColor,
+                        });
+                    }
+                }
+
+                if (targets.length === 0) {
+                    container.setText(fullText);
+                    return;
+                }
+
+                const lowerFull = fullText.toLowerCase();
+                const intervals: Array<{ start: number; end: number; color: string }> = [];
+
+                for (const target of targets) {
+                    const lowerTarget = target.text.toLowerCase();
+                    if (!lowerTarget) continue;
+
+                    let searchFrom = 0;
+                    while (searchFrom < lowerFull.length) {
+                        const idx = lowerFull.indexOf(lowerTarget, searchFrom);
+                        if (idx === -1) break;
+                        const end = idx + lowerTarget.length;
+
+                        const overlaps = intervals.some(
+                            (existing) => idx < existing.end && end > existing.start
+                        );
+                        if (!overlaps) {
+                            intervals.push({ start: idx, end, color: target.color });
+                        }
+                        searchFrom = end;
+                    }
+                }
+
+                if (intervals.length === 0) {
+                    container.setText(fullText);
+                    return;
+                }
+
+                intervals.sort((a, b) => a.start - b.start);
+
+                let cursor = 0;
+                for (const iv of intervals) {
+                    if (iv.start > cursor) {
+                        const normalSegment = container.createSpan({ cls: "vocab-3d-normal-text" });
+                        normalSegment.setText(fullText.slice(cursor, iv.start));
+                        normalSegment.setCssStyles({ color: normalTextColor });
+                    }
+
+                    const markSpan = container.createSpan({ cls: "vocab-3d-pdf-highlight" });
+                    markSpan.setText(fullText.slice(iv.start, iv.end));
+
+                    const hasExplicitAlpha =
+                        /^rgba?\([^)]*,\s*[\d.]+\s*\)$/i.test(iv.color) ||
+                        /^hsla?\([^)]*,\s*[\d.]+\s*\)$/i.test(iv.color) ||
+                        /^#[0-9a-f]{8}$/i.test(iv.color);
+
+                    // Highlighted text can use its own distinct text color (e.g. theme highlight fg or dark ink over pastel marker)
+                    const highlightedTextColor = themeHighlight.textColor || "#111827";
+
+                    markSpan.setCssStyles({
+                        color: highlightedTextColor,
+                        fontWeight: "600",
+                        backgroundColor: iv.color,
+                        opacity: hasExplicitAlpha ? "0.92" : "0.55",
+                        borderRadius: `${Math.min(themeHighlight.borderRadius, 5)}px`,
+                        paddingLeft: `${Math.max(2, themeHighlight.paddingX)}px`,
+                        paddingRight: `${Math.max(2, themeHighlight.paddingX)}px`,
+                        paddingTop: `${Math.max(1, themeHighlight.paddingY)}px`,
+                        paddingBottom: `${Math.max(1, themeHighlight.paddingY)}px`,
+                        ...(themeHighlight.borderBottomWidth > 0 && themeHighlight.borderBottomColor
+                            ? {
+                                borderBottom: `${Math.min(themeHighlight.borderBottomWidth, 2)}px solid ${themeHighlight.borderBottomColor}`,
+                            }
+                            : {}),
+                    });
+
+                    cursor = iv.end;
+                }
+
+                if (cursor < fullText.length) {
+                    const trailingSegment = container.createSpan({ cls: "vocab-3d-normal-text" });
+                    trailingSegment.setText(fullText.slice(cursor));
+                    trailingSegment.setCssStyles({ color: normalTextColor });
+                }
+            };
 
             if (currentMode === '3d') {
                 const fgFactory = (ForceGraph3D as any).default || ForceGraph3D;
@@ -1034,7 +1612,10 @@ class Vocab3DGraphView extends ItemView {
                     }
                 };
 
+                const themeHighlight = getThemeHighlightInterface(this.containerEl);
+
                 this.nodesMap.forEach(node => {
+                    console.log("node.name:", JSON.stringify(node.name), "highlights:", node.highlights);
                     let lbl = overlay.createDiv();
                     lbl.setCssStyles({
                         position: "absolute",
@@ -1050,11 +1631,12 @@ class Vocab3DGraphView extends ItemView {
                         transition: "opacity 0.05s linear, filter 0.05s linear"
                     });
 
+                    const normalTextColor = node.type === 'vocab'
+                        ? "var(--text-normal)"
+                        : (node.type === 'topic' ? "var(--text-on-accent)" : "#FFFFFF");
+
                     let textSpan = lbl.createSpan();
-                    textSpan.setText(node.name);
-                    textSpan.setCssStyles({ color: node.type === 'vocab' ? 
-                        "var(--text-normal)" : 
-                        (node.type === 'topic' ? "var(--text-on-accent)" : "#FFFFFF") });
+                    renderHighlightedLabel(textSpan, node.name, node, themeHighlight, normalTextColor);
 
                     node.lblEl = lbl;
                     node.textSpanEl = textSpan;
