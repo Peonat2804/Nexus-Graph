@@ -198,6 +198,14 @@ const getObsidianHighlightColor = (): string => {
     return computed || "#FFB86C";
 };
 
+interface SearchableGraphNode {
+    id: string;
+    name: string;
+    type: "sub" | "vocab";
+    badge?: string | null;
+    highlightedText?: string | null;
+}
+
 interface ThemeHighlightStyle {
     bgColor: string;
     textColor: string | null;
@@ -349,6 +357,279 @@ class Vocab3DGraphView extends ItemView {
 
     get isDarkTheme(): boolean {
         return document.body.classList.contains('theme-dark');
+    }
+
+    private formatSearchDisplayLabel(rawLabel: unknown, fallbackId: unknown): string {
+        const base =
+            typeof rawLabel === "string" && rawLabel.trim().length > 0
+                ? rawLabel.trim()
+                : String(fallbackId ?? "");
+
+        // Strip leading type prefix like "V_" or "S_" and replace underscores with spaces
+        // Also clean double-underscore separators like "__A__" -> " (A) " or " "
+        return base
+            .replace(/^[A-Z]_/u, "")
+            .replace(/__([A-Z]{1,3})__/g, " ($1) ")
+            .replace(/_{2,}/g, " ")
+            .replace(/_/g, " ")
+            .replace(/\s{2,}/g, " ")
+            .trim();
+    }
+
+    private getSearchableNodes(query: string): SearchableGraphNode[] {
+        const q = query.trim().toLowerCase();
+        if (!q) return [];
+
+        const matches: SearchableGraphNode[] = [];
+
+        this.nodesMap.forEach((node) => {
+            if (node.type !== "sub" && node.type !== "vocab") return;
+
+            const cleanName = this.formatSearchDisplayLabel(node.name, node.id);
+            const hlStr = typeof node.highlightedText === "string" ? node.highlightedText : "";
+            const badgeStr = typeof node.badge === "string" ? node.badge : "";
+
+            const haystack = `${cleanName} ${hlStr} ${badgeStr}`.toLowerCase();
+            if (haystack.includes(q)) {
+                matches.push({
+                    id: String(node.id),
+                    name: cleanName,
+                    type: node.type,
+                    badge: node.badge,
+                    highlightedText: node.highlightedText,
+                });
+            }
+        });
+
+        // Vocab first or alphabetical with exact-prefix matches prioritized
+        matches.sort((a, b) => {
+            const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+            const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+            if (aStarts !== bStarts) return aStarts - bStarts;
+            return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        });
+
+        return matches.slice(0, 20);
+    }
+
+    private focusGraphNode(nodeId: string, currentMode: "2d" | "3d", graph3DInstance?: any): void {
+        const node = this.nodesMap.get(nodeId);
+        if (!node) return;
+
+        if (currentMode === "2d" && this.visNetworkInstance) {
+            this.visNetworkInstance.selectNodes([nodeId]);
+            const net = this.visNetworkInstance as typeof this.visNetworkInstance & {
+                focus?: (id: string, options?: { scale?: number; animation?: { duration: number; easingFunction: string } }) => void;
+            };
+            net.focus?.(nodeId, {
+                scale: 1.25,
+                animation: { duration: 450, easingFunction: "easeInOutQuad" },
+            });
+            return;
+        }
+
+        if (currentMode === "3d" && graph3DInstance) {
+            const x = typeof node.x === "number" ? node.x : 0;
+            const y = typeof node.y === "number" ? node.y : 0;
+            const z = typeof node.z === "number" ? node.z : 0;
+
+            // Preserve current OrbitControls target (the graph's center) rather than moving target to the node
+            const controls = typeof graph3DInstance.controls === "function"
+                ? graph3DInstance.controls()
+                : null;
+            const currentTarget = controls?.target
+                ? {
+                    x: controls.target.x ?? 0,
+                    y: controls.target.y ?? 0,
+                    z: controls.target.z ?? 0,
+                }
+                : { x: 0, y: 0, z: 0 };
+
+            const currentCam = typeof graph3DInstance.cameraPosition === "function"
+                ? graph3DInstance.cameraPosition()
+                : { x: 0, y: 0, z: 300 };
+
+            // Keep the camera's current radius from currentTarget so zoom/framing stays natural
+            const camDx = (currentCam?.x ?? 0) - currentTarget.x;
+            const camDy = (currentCam?.y ?? 0) - currentTarget.y;
+            const camDz = (currentCam?.z ?? 300) - currentTarget.z;
+            const radius = Math.max(40, Math.hypot(camDx, camDy, camDz));
+
+            // Direction from currentTarget toward the searched node
+            const dirX = x - currentTarget.x;
+            const dirY = y - currentTarget.y;
+            const dirZ = z - currentTarget.z;
+            const dirLen = Math.hypot(dirX, dirY, dirZ);
+
+            const nextCamPos =
+                dirLen > 0.001
+                    ? {
+                        x: currentTarget.x + (dirX / dirLen) * radius,
+                        y: currentTarget.y + (dirY / dirLen) * radius,
+                        z: currentTarget.z + (dirZ / dirLen) * radius,
+                    }
+                    : {
+                        x: currentTarget.x + camDx,
+                        y: currentTarget.y + camDy,
+                        z: currentTarget.z + camDz,
+                    };
+
+            // Pass currentTarget as the second arg so the graph's center never shifts onto the node
+            graph3DInstance.cameraPosition(nextCamPos, currentTarget, 500);
+
+            if (node.lblEl instanceof HTMLElement) {
+                node.lblEl.classList.remove("vocab-search-pulse");
+                void node.lblEl.offsetWidth;
+                node.lblEl.classList.add("vocab-search-pulse");
+                window.setTimeout(() => {
+                    node.lblEl?.classList.remove("vocab-search-pulse");
+                }, 1400);
+            }
+        }
+    }
+
+    private renderNodeSearchControl(
+        parentEl: HTMLElement,
+        getModeAndGraph: () => { mode: "2d" | "3d"; graph3D?: any }
+    ): void {
+        const wrapper = parentEl.createDiv({ cls: "vocab-search-wrapper" });
+
+        const inputEl = wrapper.createEl("input", {
+            cls: "vocab-search-input",
+            type: "search",
+            placeholder: "Search sub or vocab...",
+        });
+
+        const resultsEl = wrapper.createDiv({ cls: "vocab-search-results" });
+        resultsEl.addClass("is-hidden");
+
+        let currentMatches: SearchableGraphNode[] = [];
+        let activeIndex = 0;
+
+        const closeResults = () => {
+            currentMatches = [];
+            activeIndex = 0;
+            resultsEl.addClass("is-hidden");
+            resultsEl.empty();
+        };
+
+        const selectMatch = (item: SearchableGraphNode) => {
+            const { mode, graph3D } = getModeAndGraph();
+            this.focusGraphNode(item.id, mode, graph3D);
+            closeResults();
+        };
+
+        const syncActiveItem = () => {
+            const buttons = Array.from(
+                resultsEl.querySelectorAll<HTMLButtonElement>(".vocab-search-result-item")
+            );
+            buttons.forEach((btn, idx) => {
+                const isSelected = idx === activeIndex;
+                btn.toggleClass("is-selected", isSelected);
+                if (isSelected) {
+                    btn.scrollIntoView({ block: "nearest" });
+                }
+            });
+        };
+
+        const updateResults = () => {
+            const query = inputEl.value;
+            resultsEl.empty();
+
+            if (!query.trim()) {
+                closeResults();
+                return;
+            }
+
+            currentMatches = this.getSearchableNodes(query);
+            activeIndex = 0;
+            resultsEl.removeClass("is-hidden");
+
+            if (currentMatches.length === 0) {
+                resultsEl.createDiv({
+                    cls: "vocab-search-empty",
+                    text: "No matching sub or vocab nodes",
+                });
+                return;
+            }
+
+            currentMatches.forEach((item, idx) => {
+                const rowBtn = resultsEl.createEl("button", {
+                    cls: "vocab-search-result-item",
+                    type: "button",
+                });
+
+                if (idx === activeIndex) {
+                    rowBtn.addClass("is-selected");
+                }
+
+                rowBtn.createSpan({
+                    cls: `vocab-search-badge vocab-search-badge--${item.type}`,
+                    text: item.type === "sub" ? "SUB" : "VOCAB",
+                });
+
+                rowBtn.createSpan({
+                    cls: "vocab-search-label",
+                    text: item.name,
+                });
+
+                rowBtn.addEventListener("mousemove", () => {
+                    if (activeIndex !== idx) {
+                        activeIndex = idx;
+                        syncActiveItem();
+                    }
+                });
+
+                rowBtn.addEventListener("click", (ev) => {
+                    ev.stopPropagation();
+                    selectMatch(item);
+                });
+            });
+        };
+
+        inputEl.addEventListener("input", updateResults);
+        inputEl.addEventListener("focus", updateResults);
+
+        inputEl.addEventListener("keydown", (ev) => {
+            if (ev.key === "Escape") {
+                inputEl.value = "";
+                closeResults();
+                inputEl.blur();
+                return;
+            }
+
+            if (ev.key === "ArrowDown") {
+                if (currentMatches.length === 0) return;
+                ev.preventDefault();
+                activeIndex = (activeIndex + 1) % currentMatches.length;
+                syncActiveItem();
+                return;
+            }
+
+            if (ev.key === "ArrowUp") {
+                if (currentMatches.length === 0) return;
+                ev.preventDefault();
+                activeIndex = (activeIndex - 1 + currentMatches.length) % currentMatches.length;
+                syncActiveItem();
+                return;
+            }
+
+            if (ev.key === "Enter") {
+                if (currentMatches.length === 0) return;
+                ev.preventDefault();
+                const chosen = currentMatches[activeIndex] ?? currentMatches[0];
+                if (chosen) {
+                    selectMatch(chosen);
+                }
+            }
+        });
+
+        const onOutsideClick = (ev: MouseEvent) => {
+            if (!wrapper.contains(ev.target as Node)) {
+                closeResults();
+            }
+        };
+        this.registerDomEvent(document, "click", onOutsideClick);
     }
 
     private getLiveThemeStyle() {
@@ -789,11 +1070,24 @@ class Vocab3DGraphView extends ItemView {
         });
 
         const titleSpan = headerRow.createSpan();
-        titleSpan.setText("🗺️ GRAPH CONTROLS");
+        titleSpan.setText("GRAPH CONTROLS");
 
-        const collapseBtn = headerRow.createEl('button', {
-            cls: 'vocab-collapse-btn',
-            text: '▲'
+        const rightGroup = headerRow.createDiv();
+        rightGroup.setCssStyles({
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginLeft: "auto"
+        });
+
+        this.renderNodeSearchControl(
+            rightGroup,
+            () => ({ mode: currentMode, graph3D: currentGraphInstance })
+        );
+
+        const collapseBtn = rightGroup.createEl("button", {
+            cls: "vocab-collapse-btn",
+            text: "▲"
         });
 
         const controlsBody = topBar.createDiv();

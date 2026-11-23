@@ -139,3 +139,100 @@ If your plugin does not need CSS, delete this file.
     text-align: left;
     box-sizing: border-box;
 }
+
+.vocab-search-wrapper {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    width: 210px;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.vocab-search-input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.vocab-search-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;              /* Right border stays aligned with right border of search box */
+    left: auto;            /* Expands to the left rather than pushing right */
+    width: max-content;    /* Grows wide enough for full labels */
+    min-width: 100%;       /* Never narrower than the search input */
+    max-width: min(520px, calc(100vw - 32px));
+    max-height: 280px;
+    overflow-x: auto;
+    overflow-y: auto;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    box-sizing: border-box;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--button-radius, 6px);
+    box-shadow: var(--shadow-m);
+}
+
+.vocab-search-results.is-hidden {
+    display: none;
+}
+
+.vocab-search-result-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+.vocab-search-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background-color: var(--background-modifier-hover);
+    color: var(--text-muted);
+}
+
+.vocab-search-badge--vocab {
+    color: var(--text-accent);
+}
+
+.vocab-search-label {
+    white-space: normal;   /* Shows full text instead of truncating with "..." */
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+}
+
+.vocab-search-empty {
+    padding: 8px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+@keyframes vocabSearchPulse {
+    0%, 100% {
+        filter: brightness(1);
+    }
+    50% {
+        filter: brightness(1.45);
+    }
+}
+
+.vocab-search-pulse {
+    animation: vocabSearchPulse 0.65s ease-in-out 2;
+}
+
+.vocab-search-result-item.is-selected {
+    background-color: var(--background-modifier-hover);
+    outline: 1px solid var(--interactive-accent);
+}
