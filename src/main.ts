@@ -54,6 +54,11 @@ const CIRCLE_COLOR_MAP: Array<[RegExp, string]> = [
     [/[🩷]/u,   "rgba(244, 114, 182, 0.55)"],   // Pink
 ];
 
+interface VocabLocation {
+    path: string;
+    line: number;
+}
+
 const parseCircleHighlight = (rawInner: string): { text: string; circleColor: string | null } => {
     let circleColor: string | null = null;
 
@@ -1021,36 +1026,64 @@ class Vocab3DGraphView extends ItemView {
         const activeFolder = await updateFolders(currentFolder);
         folderPin.syncPinVisual();
 
-        const folderHasTopic = async (folderPath: string, topicToCheck: string): Promise<boolean> => {
-            if (!folderPath || !topicToCheck) return false;
+        const showLocationPicker = (locs: VocabLocation[]): void => {
+            document.querySelectorAll(".vocab-location-picker").forEach((el) => el.remove());
 
-            const allFiles = this.app.vault.getMarkdownFiles();
-            const targetFiles = folderPath === "/"
-                ? allFiles.filter(f => !f.path.includes('/'))
-                : allFiles.filter(f => f.path.startsWith(folderPath + "/"));
+            const picker = document.body.createDiv({ cls: "vocab-location-picker" });
+            picker.setCssStyles({
+                position: "fixed",
+                left: "50%",
+                top: "50%",
+                transform: "translate(-50%, -50%)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "stretch",
+                gap: "8px",
+                zIndex: "9999",
+            });
 
-            const normalizedTarget = this.sanitize(topicToCheck);
+            const cleanup = () => {
+                picker.remove();
+                document.removeEventListener("click", onDocClick);
+                document.removeEventListener("keydown", onKeyDown);
+            };
 
-            for (const file of targetFiles) {
-                const content = await this.getLatestFileContent(file);
-                const lines = content.split('\n');
-                for (const line of lines) {
-                    const segments = line.split('\\');
-                    for (const seg of segments) {
-                        for (const topicMatch of seg.matchAll(/\[topic::\s*([^\]]+)\]/gi)) {
-                            if (topicMatch[1]) {
-                                const cleanTopic = this.sanitize(topicMatch[1]);
-                                if (cleanTopic === topicToCheck || this.sanitize(cleanTopic) === normalizedTarget) {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
+            locs.forEach((loc, idx) => {
+                const fileName = loc.path.split("/").pop() ?? loc.path;
+                const itemBtn = picker.createEl("button", {
+                    cls: "vocab-location-picker-item",
+                    type: "button",
+                    text: `${idx + 1}. ${fileName} : ${loc.line + 1}`,
+                });
+                itemBtn.setCssStyles({
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                });
+                itemBtn.addEventListener("click", (ev) => {
+                    ev.stopPropagation();
+                    cleanup();
+                    void this.openFileAtLine(loc.path, loc.line);
+                });
+            });
+
+            const onDocClick = (ev: MouseEvent) => {
+                if (!picker.contains(ev.target as Node)) {
+                    cleanup();
                 }
-            }
+            };
 
-            return false;
-        };
+            const onKeyDown = (ev: KeyboardEvent) => {
+                if (ev.key === "Escape") {
+                    cleanup();
+                }
+            };
+
+            window.setTimeout(() => {
+                document.addEventListener("click", onDocClick);
+                document.addEventListener("keydown", onKeyDown);
+            }, 0);
+        }
 
         const updateTopicsForFolder = async (folderPath: string, overrideTopic?: string) => {
             graphElem.empty();
@@ -1134,7 +1167,7 @@ class Vocab3DGraphView extends ItemView {
 
             let linksArray: any[] = [];
             let addedNodes = new Set<string>();
-            let nodeToLocationMap = new Map<string, { path: string; line: number }>();
+            let nodeLocationsMap = new Map<string, VocabLocation[]>();
 
             const addNode = (
                 id: string,
@@ -1142,13 +1175,31 @@ class Vocab3DGraphView extends ItemView {
                 type: string, 
                 levelFromTopic = 0, 
                 colorKey: string | null = null, 
-                location: any = null, 
+                location: VocabLocation | VocabLocation[] | null = null,
                 badgeVal: string | null = null,
                 highlightMeta: HighlightMeta = {}
             ) => {
-                if (location && !nodeToLocationMap.has(id)) {
-                    nodeToLocationMap.set(id, location);
+                if (location) {
+                    const incoming = Array.isArray(location) ? location : [location];
+                    const currentList = nodeLocationsMap.get(id) ?? [];
+
+                    for (const loc of incoming) {
+                        if (!loc || typeof loc.path !== "string" || typeof loc.line !== "number") {
+                            continue;
+                        }
+                        const alreadyExists = currentList.some(
+                            (existing) => existing.path === loc.path && existing.line === loc.line
+                        );
+                        if (!alreadyExists) {
+                            currentList.push({ path: loc.path, line: loc.line });
+                        }
+                    }
+
+                    if (currentList.length > 0) {
+                        nodeLocationsMap.set(id, currentList);
+                    }
                 }
+
                 if (addedNodes.has(id)) return;
                 addedNodes.add(id);
 
@@ -1178,7 +1229,6 @@ class Vocab3DGraphView extends ItemView {
                 const resolvedBg = type === 'topic' ? accentBg : (type === 'vocab' ? bgPrimary : bg);
                 const nodeBorder = type === 'topic' ? accentBg : border;
                 const resolvedTextColor = type === 'topic' ? textOnAccent : (type === 'vocab' ? textNormal : '#FFFFFF');
-                const activeFont = getActiveCanvasFont(this.containerEl);
 
                 if (currentMode === '2d' && type === 'vocab' && badgeVal) {
                     this.nodesMap.set(id, {
@@ -1578,12 +1628,18 @@ class Vocab3DGraphView extends ItemView {
                     .linkColor((link: any) => link.color)
                     .linkWidth(2.5)
                     .linkOpacity(0.5)
-                    .onNodeClick((node: any) => {
-                        if (node.type === 'vocab') {
-                            let loc = nodeToLocationMap.get(node.id);
-                            if (loc) {
-                                this.openFileAtLine(loc.path, loc.line);
+                    .onNodeClick((node: any, event?: MouseEvent) => {
+                        if (node.type === "vocab") {
+                            const locs = nodeLocationsMap.get(node.id);
+                            if (!locs || locs.length === 0) return;
+
+                            if (locs.length === 1) {
+                                const first = locs[0];
+                                if (first) void this.openFileAtLine(first.path, first.line);
+                                return;
                             }
+
+                            showLocationPicker(locs);
                         }
                     });
 
@@ -1603,12 +1659,18 @@ class Vocab3DGraphView extends ItemView {
                 let touchStartY = 0;
                 let hasMoved = false;
 
-                const handleNodeClick = (node: any) => {
-                    if (node.type === 'vocab') {
-                        let loc = nodeToLocationMap.get(node.id);
-                        if (loc) {
-                            this.openFileAtLine(loc.path, loc.line);
+                const handleNodeClick = (node: any, event?: MouseEvent) => {
+                    if (node.type === "vocab") {
+                        const locs = nodeLocationsMap.get(node.id);
+                        if (!locs || locs.length === 0) return;
+
+                        if (locs.length === 1) {
+                            const first = locs[0];
+                            if (first) void this.openFileAtLine(first.path, first.line);
+                            return;
                         }
+
+                        showLocationPicker(locs);
                     }
                 };
 
@@ -1879,13 +1941,23 @@ class Vocab3DGraphView extends ItemView {
                         this.visNetworkInstance.redraw();
 
                         this.visNetworkInstance.on("click", async (params: any) => {
-                            if (params.nodes.length > 0) {
-                                const clickedNodeId = params.nodes[0];
-                                const loc = nodeToLocationMap.get(clickedNodeId);
-                                if (loc) {
-                                    this.openFileAtLine(loc.path, loc.line);
-                                }
+                            if (!Array.isArray(params.nodes) || params.nodes.length === 0) return;
+
+                            const clickedNodeId = params.nodes[0];
+                            const node = this.nodesMap.get(clickedNodeId);
+                            if (!node || node.type !== "vocab") return;
+
+                            const locs = nodeLocationsMap.get(clickedNodeId);
+                            if (!locs || locs.length === 0) return;
+
+                            if (locs.length === 1) {
+                                const first = locs[0];
+                                if (first) await this.openFileAtLine(first.path, first.line);
+                                return;
                             }
+
+                            // vis-network click params provide DOM coordinates in params.event.center or srcEvent
+                            showLocationPicker(locs);
                         });
                     } catch (err: any) {
                         console.error("2D Network Error:", err);
