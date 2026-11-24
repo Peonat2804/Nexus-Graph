@@ -8,8 +8,8 @@ _(3D & 2D Vocabulary & Mind Map Plugin for Obsidian)_
 - 🚀 **Dual-Mode Engine:** Instantly toggle between an immersive **3D Force-Directed Graph** (with depth-of-field blur and spatial z-index ordering) and a flat **2D Physics Network** (`vis-network`) with a single click.
 - 📁 **Dynamic Folder & Topic Scoping:** Automatically scans your vault's folders and extracts explicit `[topic::]` tags to filter your views on the fly.
 - 🎯 **Rich Markdown Tagging:** Organize hierarchical knowledge naturally using inline tags (`[topic::]`, `[sub::]`, `[vocab::]`, and floating badges `[n::]`).
-- 🖍️ Smart Inline Highlighting: Parses both Obsidian ==...== highlights and `<mark>` tags (we can use the Highlightr plugin) and renders marker-style backgrounds cleanly across 3D HTML overlays and 2D canvas nodes:
-	- Color Symbol Mapping: Recognizes colored circle indicators inside ==...== highlights (such as 🔵, 🟢, 🟡, 🔴, 🟣, 🟠, and more) to apply matching highlight colors while stripping decorative symbols from displayed labels.
+- 🖍️ Smart Inline Highlighting: Parses both Obsidian `==...==` highlights and `<mark>` tags (we can use the Highlightr plugin) and renders marker-style backgrounds cleanly across 3D HTML overlays and 2D canvas nodes:
+	- Color Symbol Mapping: Recognizes colored circle indicators inside `==...==` highlights (such as 🔵, 🟢, 🟡, 🔴, 🟣, 🟠, and more) to apply matching highlight colors while stripping decorative symbols from displayed labels.
 	- Theme-Aware Fallback: Defaults to your active Obsidian theme's highlight styling when no explicit or symbol-mapped color is specified, keeping surrounding text legible and uniform.
 - 🖱️ **Actionable & Interactive:**
 	- Smooth node dragging for both parents and sub-nodes with zero simulation bounce-back.
@@ -28,12 +28,17 @@ You can tag your vocabularies in many files or wherever you like, then your voca
 
 ### Example Note Structure:
 - A vocabulary assigned to a topic
+
 > `[vocab::kündigen]` - _to quit_ `[topic::[[Common Actions]]]`
+
 - A vocabulary assigned to 2 topics, separated by a backslash (`\`)
+
 > `[vocab::sich um (A) kümmern]` - _to take care of / to look after_ `[topic::[[Common Actions]]]` \ `[sub::Family]` `[topic::[[Relationships]]]`
 - A vocabulary with a badge
+
 > `[vocab::kriegen]` - `[n::informal]` _to get or receive ~ bekommen or ~ erhalten_ `[topic::[[Common Actions]]] `
 - A vocabulary with a highlighted text
+
 > `[vocab::eine <mark style="background: #FF5582A6;">Präsentation</mark> halten]` - _give a presentation_ `[sub::Tasks]` `[topic::[[Work]]]`
 
 > `[vocab::einen ==🔵Vortrag== halten]` - _give a lecture / to lecture someone_ `[sub::Tasks]` `[topic::[[Work]]]`
