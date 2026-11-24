@@ -334,6 +334,16 @@ const getThemeHighlightInterface = (containerEl?: HTMLElement): ThemeHighlightIn
     };
 };
 
+interface VisNetworkInternal {
+    body?: {
+        data?: {
+            nodes?: {
+                get?: (id: string) => { label?: string } | null | undefined;
+            };
+        };
+    };
+}
+
 class Vocab3DGraphView extends ItemView {
     plugin: Vocab3DGraphPlugin;
     animationFrameId: number | null = null;
@@ -359,25 +369,38 @@ class Vocab3DGraphView extends ItemView {
         return document.body.classList.contains('theme-dark');
     }
 
-    private formatSearchDisplayLabel(rawLabel: unknown, fallbackId: unknown): string {
-        const base =
-            typeof rawLabel === "string" && rawLabel.trim().length > 0
-                ? rawLabel.trim()
-                : String(fallbackId ?? "");
+    private extractNodeDisplayText(node: any, mode?: "2d" | "3d"): string {
+        const rawLabel = typeof node?.rawLabel === "string" ? node.rawLabel.trim() : "";
+        const nodeName = typeof node?.name === "string" ? node.name.trim() : "";
 
-        // Strip leading type prefix like "V_" or "S_" and replace underscores with spaces
-        // Also clean double-underscore separators like "__A__" -> " (A) " or " "
-        return base
-            .replace(/^[A-Z]_/u, "")
-            .replace(/__([A-Z]{1,3})__/g, " ($1) ")
-            .replace(/_{2,}/g, " ")
-            .replace(/_/g, " ")
-            .replace(/\s{2,}/g, " ")
-            .trim();
+        // 1. Prefer the label matching the active mode when known
+        if (mode === "2d") {
+            if (rawLabel) return rawLabel;
+            if (nodeName) return nodeName;
+        } else if (mode === "3d") {
+            if (nodeName) return nodeName;
+            if (rawLabel) return rawLabel;
+        } else {
+            // Default: prefer rawLabel (2D), then nodeName (3D)
+            if (rawLabel) return rawLabel;
+            if (nodeName) return nodeName;
+        }
+
+        // 2. Optional 3D DOM fallback if neither string is set
+        if (node?.lblEl instanceof HTMLElement) {
+            if (node.textSpanEl instanceof HTMLElement && node.textSpanEl.textContent) {
+                const spanText = node.textSpanEl.textContent.trim();
+                if (spanText) return spanText;
+            }
+            const domText = (node.lblEl.textContent ?? "").trim();
+            if (domText) return domText;
+        }
+
+        return "";
     }
 
-    private getSearchableNodes(query: string): SearchableGraphNode[] {
-        const q = query.trim().toLowerCase();
+    private getSearchableNodes(query: string, mode?: "2d" | "3d"): SearchableGraphNode[] {
+        const q = query.trim().normalize("NFC").toLowerCase();
         if (!q) return [];
 
         const matches: SearchableGraphNode[] = [];
@@ -385,15 +408,18 @@ class Vocab3DGraphView extends ItemView {
         this.nodesMap.forEach((node) => {
             if (node.type !== "sub" && node.type !== "vocab") return;
 
-            const cleanName = this.formatSearchDisplayLabel(node.name, node.id);
-            const hlStr = typeof node.highlightedText === "string" ? node.highlightedText : "";
-            const badgeStr = typeof node.badge === "string" ? node.badge : "";
+            const displayName = this.extractNodeDisplayText(node, mode).normalize("NFC");
+            if (!displayName) return;
 
-            const haystack = `${cleanName} ${hlStr} ${badgeStr}`.toLowerCase();
+            const hlText = typeof node.highlightedText === "string"
+                ? node.highlightedText.normalize("NFC")
+                : "";
+
+            const haystack = `${displayName} ${hlText}`.toLowerCase();
             if (haystack.includes(q)) {
                 matches.push({
                     id: String(node.id),
-                    name: cleanName,
+                    name: displayName,
                     type: node.type,
                     badge: node.badge,
                     highlightedText: node.highlightedText,
@@ -401,12 +427,13 @@ class Vocab3DGraphView extends ItemView {
             }
         });
 
-        // Vocab first or alphabetical with exact-prefix matches prioritized
         matches.sort((a, b) => {
-            const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
-            const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+            const aLower = a.name.toLowerCase();
+            const bLower = b.name.toLowerCase();
+            const aStarts = aLower.startsWith(q) ? 0 : 1;
+            const bStarts = bLower.startsWith(q) ? 0 : 1;
             if (aStarts !== bStarts) return aStarts - bStarts;
-            return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+            return a.name.localeCompare(b.name, "de", { sensitivity: "base" });
         });
 
         return matches.slice(0, 20);
@@ -1971,7 +1998,6 @@ class Vocab3DGraphView extends ItemView {
                 const themeHighlight = getThemeHighlightInterface(this.containerEl);
 
                 this.nodesMap.forEach(node => {
-                    console.log("node.name:", JSON.stringify(node.name), "highlights:", node.highlights);
                     let lbl = overlay.createDiv();
                     lbl.setCssStyles({
                         position: "absolute",
