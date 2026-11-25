@@ -74,7 +74,8 @@ If your plugin does not need CSS, delete this file.
     flex: 1;
     width: 100%;
     overflow: hidden;
-    background-color: transparent; /* Lets theme patterns on .view-content show through */
+    background-color: transparent;
+    background-image: none;
 }
 
 .vocab-graph-canvas {
@@ -91,6 +92,7 @@ If your plugin does not need CSS, delete this file.
     height: 100%;
     pointer-events: none;
     z-index: 99;
+    background: transparent;
 }
 
 .vocab-pin-btn {

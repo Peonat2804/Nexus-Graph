@@ -77,24 +77,50 @@ const parseCircleHighlight = (rawInner: string): { text: string; circleColor: st
     return { text: strippedText, circleColor };
 };
 
+function mixHash32(h: number): number {
+    let x = h >>> 0;
+    x ^= x >>> 16;
+    x = Math.imul(x, 0x7feb352d);
+    x ^= x >>> 15;
+    x = Math.imul(x, 0x846ca68b);
+    x ^= x >>> 16;
+    return x >>> 0;
+}
+
 function getBranchColors(name: string, isLeafVocab = false) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+
+    const normalized = name.normalize("NFC");
+    let hash = 2166136261; // FNV-1a 32-bit offset basis
+
+    for (const ch of normalized) {
+        const codePoint = ch.codePointAt(0) ?? 0;
+        hash ^= codePoint;
+        hash = Math.imul(hash, 16777619);
     }
-    let index = Math.abs(hash) % (branchPalettes.length || 1);
-    
-    // Provide a safe default fallback palette if the array is empty or undefined
-    let palette = branchPalettes[index] ?? { bg: '#2C3E50', border: '#1A252F', light: '#5D6D7E' };
+
+    const mixed = mixHash32(hash);
+    const paletteList = Array.isArray(branchPalettes) && branchPalettes.length > 0
+        ? branchPalettes
+        : [];
+
+    const fallbackPalette = { bg: "#2C3E50", border: "#1A252F", light: "#5D6D7E" };
+    const palette = paletteList.length > 0
+        ? (paletteList[mixed % paletteList.length] ?? fallbackPalette)
+        : fallbackPalette;
 
     if (isLeafVocab) {
         return {
-            bg: 'var(--background-primary)',
+            bg: "var(--background-primary)",
             border: palette.bg,
-            light: palette.light 
+            light: palette.light,
         };
     }
-    return { bg: palette.bg, border: palette.border, light: palette.light };
+
+    return {
+        bg: palette.bg,
+        border: palette.border,
+        light: palette.light,
+    };
 }
 
 function getThemeColors() {
@@ -367,6 +393,36 @@ class Vocab3DGraphView extends ItemView {
 
     get isDarkTheme(): boolean {
         return document.body.classList.contains('theme-dark');
+    }
+
+    private hashString32(input: string): string {
+        let hash = 5381;
+        for (let i = 0; i < input.length; i++) {
+            hash = ((hash << 5) + hash) + input.charCodeAt(i);
+            hash = hash >>> 0;
+        }
+        return hash.toString(36);
+    }
+
+    private makeNodeId(prefix: "V" | "S" | "T", rawText: string): string {
+        const clean = rawText.normalize("NFC").trim();
+        const slug = clean
+            .replace(/[^\p{L}\p{N}]+/gu, "_")
+            .replace(/^_+|_+$/g, "");
+        const suffix = this.hashString32(`${prefix}::${clean}`);
+        return `${prefix}_${slug || "item"}_${suffix}`;
+    }
+
+    private makeVocabId(cleanVocab: string): string {
+        return this.makeNodeId("V", cleanVocab);
+    }
+
+    private makeSubId(subText: string): string {
+        return this.makeNodeId("S", subText);
+    }
+
+    private makeTopicId(topicName: string): string {
+        return this.makeNodeId("T", topicName);
     }
 
     private extractNodeDisplayText(node: any, mode?: "2d" | "3d"): string {
@@ -1708,7 +1764,7 @@ class Vocab3DGraphView extends ItemView {
             };
             console.log(`Rendering graph for topic: ${topicName}`);
 
-            let centralTopicId = "T_" + topicName.replace(/[^a-zA-Z0-9]/g, "_");
+            let centralTopicId = this.makeTopicId(topicName);
             addNode(centralTopicId, topicName, 'topic', 0, null, { path: '', line: 0 }, null);
 
             let linksSet = new Map<string, any>();
@@ -1760,7 +1816,7 @@ class Vocab3DGraphView extends ItemView {
                             let vocabColorKey = immediateParentSub || cleanTopic;
 
                             if (cleanVocab) {
-                                let vocabId = "V_" + cleanVocab.replace(/[^a-zA-Z0-9]/g, "_");
+                                const vocabId = this.makeVocabId(cleanVocab);
                                 let vocabParent = cleanSubs.length > 0 ? cleanSubs[0] : cleanTopic;
                                 addNode(
                                     vocabId, 
@@ -1783,7 +1839,7 @@ class Vocab3DGraphView extends ItemView {
                             for (let j = 0; j < cleanSubs.length; j++) {
                                 let subText = cleanSubs[j];
                                 if (!subText) continue; // Skip if undefined
-                                let subId = "S_" + subText.replace(/[^a-zA-Z0-9]/g, "_");
+                                let subId = this.makeSubId(subText);
                                 let levelFromTopic = cleanSubs.length - j; 
                                 addNode(subId, subText, 'sub', levelFromTopic, subText, locationData, null);
                                 pathNodes.push(subId);
