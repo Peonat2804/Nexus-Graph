@@ -1856,10 +1856,10 @@ class Vocab3DGraphView extends ItemView {
                                 let linkKey = sourceId + "->" + targetId;
                                 
                                 let edgeColorKey = pathColorKeys[i];
-                                let edgeColor = '#93C5FD';
+                                let edgeColor = '#878888';
                                 if (edgeColorKey && edgeColorKey !== topicName) {
                                     let branchInfo = getBranchColors(edgeColorKey, false);
-                                    edgeColor = branchInfo.light || '#93C5FD';
+                                    edgeColor = branchInfo.light || '#878888';
                                 }
 
                                 if (currentMode === '2d') {
