@@ -1812,8 +1812,9 @@ class Vocab3DGraphView extends ItemView {
                             let pathNodes = [];
                             let pathColorKeys = [];
                             let locationData = { path: file.path, line: lineIndex };
-                            let immediateParentSub = cleanSubs.length > 0 ? cleanSubs[cleanSubs.length - 1] : cleanVocab;
+                            let immediateParentSub = cleanSubs.length > 0 ? cleanSubs[0] : cleanVocab;
                             let vocabColorKey = immediateParentSub || cleanTopic;
+                            console.log(`Adding vocab node: ${cleanVocab} under topic: ${cleanTopic} with parent sub: ${immediateParentSub}`);
 
                             if (cleanVocab) {
                                 const vocabId = this.makeVocabId(cleanVocab);
@@ -1841,6 +1842,7 @@ class Vocab3DGraphView extends ItemView {
                                 if (!subText) continue; // Skip if undefined
                                 let subId = this.makeSubId(subText);
                                 let levelFromTopic = cleanSubs.length - j; 
+                                console.log(`Adding sub node: ${subText} at level ${levelFromTopic} under topic: ${cleanTopic}`);
                                 addNode(subId, subText, 'sub', levelFromTopic, subText, locationData, null);
                                 pathNodes.push(subId);
                                 pathColorKeys.push(subText);
